@@ -5,10 +5,13 @@ import { formatMoney } from "../../utils.js";
 
 export default function ContinuityPanel({ userId }) {
   const [rule, setRule] = useState(null);
+  const [ownerName, setOwnerName] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
-    setRule(await api.getContinuity(userId));
+    const [r, summary] = await Promise.all([api.getContinuity(userId), api.getSummary(userId)]);
+    setRule(r);
+    setOwnerName(summary.name);
   }
 
   useEffect(() => {
@@ -43,7 +46,7 @@ export default function ContinuityPanel({ userId }) {
         <div className="family-header">
           <h1>Continuidad financiera</h1>
         </div>
-        <p>María todavía no ha configurado un plan de continuidad.</p>
+        <p>{ownerName || "El adulto mayor"} todavía no ha configurado un plan de continuidad.</p>
       </div>
     );
   }
@@ -52,7 +55,7 @@ export default function ContinuityPanel({ userId }) {
     <div>
       <div className="family-header">
         <h1>Continuidad financiera</h1>
-        <p>"¿Qué pasa si María no puede administrar su dinero temporalmente?" — un plan que ya quedó autorizado por ella.</p>
+        <p>"¿Qué pasa si {ownerName || "el adulto mayor"} no puede administrar su dinero temporalmente?" — un plan que ya quedó autorizado por ella o él.</p>
       </div>
 
       <div className={`continuity-card ${rule.active ? "active" : ""}`}>

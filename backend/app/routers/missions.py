@@ -86,10 +86,11 @@ def confirm_mission(body: MissionConfirmRequest):
     with db_cursor(commit=True) as cur:
         cur.execute(
             "INSERT INTO missions (id, owner_id, delegate_id, purpose, start_date, end_date, "
-            "monthly_limit, allowed_categories, status, source_text) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "monthly_limit, per_transaction_limit, allowed_categories, status, source_text) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 mission_id, body.owner_id, delegate["id"], body.purpose,
-                start.isoformat(), end.isoformat(), body.monthly_limit,
+                start.isoformat(), end.isoformat(), body.monthly_limit, body.per_transaction_limit,
                 json.dumps(body.allowed_categories), "active", body.source_text,
             ),
         )
@@ -128,6 +129,14 @@ def list_missions(owner_id: str):
             perms = cur.execute(
                 "SELECT action, allowed FROM permissions WHERE mission_id = ?", (m["id"],)
             ).fetchall()
+            # A mission is reported as "expired" the moment its end_date passes,
+            # even if nobody ever flips the stored `status` column -- the
+            # Decision Engine already treats it as unauthorized either way
+            # (see engines/decision_engine.py STEP 0), this just makes the UI
+            # honest about it too.
+            effective_status = m["status"]
+            if effective_status == "active" and m["end_date"] < datetime.utcnow().isoformat():
+                effective_status = "expired"
             result.append({
                 "id": m["id"],
                 "delegate_name": m["delegate_name"],
@@ -135,9 +144,10 @@ def list_missions(owner_id: str):
                 "start_date": m["start_date"],
                 "end_date": m["end_date"],
                 "monthly_limit": m["monthly_limit"],
+                "per_transaction_limit": m["per_transaction_limit"],
                 "allowed_categories": json.loads(m["allowed_categories"]),
                 "forbidden_actions": [p["action"] for p in perms if not p["allowed"]],
-                "status": m["status"],
+                "status": effective_status,
                 "spent_this_month": spent,
             })
     return result

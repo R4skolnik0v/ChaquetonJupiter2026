@@ -3,7 +3,7 @@ import { List, CalendarClock, Sparkles, LifeBuoy, CircleCheck, TriangleAlert } f
 import { api } from "../../api.js";
 import { formatMoney, formatDateLong, CATEGORY_ICONS } from "../../utils.js";
 
-export default function ElderHome({ userId, onNavigate }) {
+export default function ElderHome({ userId, onNavigate, pendingCount = 0 }) {
   const [summary, setSummary] = useState(null);
 
   useEffect(() => {
@@ -14,11 +14,20 @@ export default function ElderHome({ userId, onNavigate }) {
     return <p style={{ fontSize: "1.1rem", color: "var(--ink-soft)" }}>Cargando tu información…</p>;
   }
 
-  const firstName = summary.name.split(" ")[0];
+  const firstName = (summary.name || "").split(" ")[0] || "";
 
   return (
     <div>
-      <h1 className="elder-greeting">Buenos días, {firstName} 👋</h1>
+      <h1 className="elder-greeting">{firstName ? `Buenos días, ${firstName} 👋` : "Buenos días 👋"}</h1>
+
+      {pendingCount > 0 && (
+        <button className="elder-help-banner" onClick={() => onNavigate("approvals")} style={{ background: "var(--amber-bg)", color: "var(--amber)", borderColor: "rgba(185,120,43,0.3)" }}>
+          Tu familia te está pidiendo algo
+          <span className="sub">
+            {pendingCount === 1 ? "Hay 1 solicitud esperando tu aprobación." : `Hay ${pendingCount} solicitudes esperando tu aprobación.`}
+          </span>
+        </button>
+      )}
 
       <div className="elder-balance-card">
         <p className="elder-balance-label">Disponible</p>
@@ -49,6 +58,11 @@ export default function ElderHome({ userId, onNavigate }) {
           ))}
         </>
       )}
+
+      <button className="elder-help-banner" onClick={() => onNavigate("request-help")}>
+        🤝 ¿Necesitas ayuda con tu dinero?
+        <span className="sub">Cuéntanos qué necesitas y nosotros lo organizamos contigo.</span>
+      </button>
 
       <div className="elder-actions">
         <button className="elder-button" onClick={() => onNavigate("movements")}>

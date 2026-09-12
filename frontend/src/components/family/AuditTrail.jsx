@@ -4,9 +4,11 @@ import { formatMoney, formatDateTime, CATEGORY_ICONS, STATUS_LABEL_ES } from "..
 
 export default function AuditTrail({ userId }) {
   const [entries, setEntries] = useState(null);
+  const [ownerName, setOwnerName] = useState("");
 
   useEffect(() => {
     api.getAuditTrail(userId).then(setEntries);
+    api.getSummary(userId).then((s) => setOwnerName(s.name));
   }, [userId]);
 
   if (!entries) return <p>Cargando…</p>;
@@ -15,7 +17,7 @@ export default function AuditTrail({ userId }) {
     <div>
       <div className="family-header">
         <h1>Qué pasó con el dinero</h1>
-        <p>Cada decisión, con su explicación — la misma información que ve María, con más detalle.</p>
+        <p>Cada decisión, con su explicación — la misma información que ve {ownerName || "el adulto mayor"}, con más detalle.</p>
       </div>
 
       {entries.length === 0 ? (

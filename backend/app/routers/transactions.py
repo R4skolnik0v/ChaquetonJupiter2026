@@ -37,6 +37,7 @@ def list_transactions(user_id: str, mission_id: str | None = None):
     for r in rows:
         d = dict(r)
         d["reasons"] = json.loads(d["reasons"])
+        d["exception_eligible"] = bool(d.get("exception_eligible"))
         out.append(d)
     return out
 
@@ -72,6 +73,9 @@ def simulate_transaction(body: SimulateTransactionRequest):
                 "id": mission_row["id"],
                 "allowed_categories": json.loads(mission_row["allowed_categories"]),
                 "monthly_limit": mission_row["monthly_limit"],
+                "per_transaction_limit": mission_row["per_transaction_limit"],
+                "start_date": mission_row["start_date"],
+                "end_date": mission_row["end_date"],
             }
 
         this_month = datetime.utcnow().strftime("%Y-%m")
@@ -108,11 +112,11 @@ def simulate_transaction(body: SimulateTransactionRequest):
     with db_cursor(commit=True) as cur:
         cur.execute(
             "INSERT INTO transactions (id, user_id, mission_id, merchant, category, amount, "
-            "timestamp, status, reasons) VALUES (?,?,?,?,?,?,?,?,?)",
+            "timestamp, status, reasons, exception_eligible) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
                 tx_id, body.user_id, mission_dict["id"] if mission_dict else None,
                 body.merchant, body.category, body.amount, now,
-                decision.status, json.dumps(decision.reasons),
+                decision.status, json.dumps(decision.reasons), int(decision.exception_eligible),
             ),
         )
         cur.execute(
@@ -133,6 +137,7 @@ def simulate_transaction(body: SimulateTransactionRequest):
 
     return {
         "id": tx_id,
+        "mission_id": mission_dict["id"] if mission_dict else None,
         "merchant": body.merchant,
         "category": body.category,
         "amount": body.amount,
@@ -140,4 +145,5 @@ def simulate_transaction(body: SimulateTransactionRequest):
         "status": decision.status,
         "reasons": decision.reasons,
         "comparison": decision.comparison,
+        "exception_eligible": decision.exception_eligible,
     }
