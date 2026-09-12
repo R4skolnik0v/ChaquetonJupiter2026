@@ -13,6 +13,7 @@ class MissionConfirmRequest(BaseModel):
     purpose: str
     days: int
     monthly_limit: float
+    per_transaction_limit: Optional[float] = None
     allowed_categories: list[str]
     source_text: Optional[str] = None
 
@@ -36,3 +37,23 @@ class TrustMemberRequest(BaseModel):
 
 class ContinuityActivateRequest(BaseModel):
     user_id: str
+
+
+class CustomScenarioRequest(BaseModel):
+    owner_name: str
+    delegate_name: Optional[str] = None
+    delegate_relationship: str = "familiar"
+
+
+class ExceptionRequestCreate(BaseModel):
+    user_id: str
+    mission_id: str
+    merchant: str
+    category: str
+    amount: float
+    requested_by: str
+
+
+class ExceptionResolveRequest(BaseModel):
+    decision: str  # "approved" | "denied"
+    resolved_by: str

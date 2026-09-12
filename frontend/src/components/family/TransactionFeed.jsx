@@ -2,8 +2,10 @@ import React, { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { formatMoney, formatDateTime, CATEGORY_ICONS, STATUS_LABEL_ES } from "../../utils.js";
 
-export default function TransactionFeed({ transactions, highlightId }) {
+export default function TransactionFeed({ transactions, highlightId, onRequestException }) {
   const [expanded, setExpanded] = useState(new Set());
+  const [requested, setRequested] = useState(new Set());
+  const [busyId, setBusyId] = useState(null);
 
   useEffect(() => {
     if (highlightId) setExpanded((prev) => new Set(prev).add(highlightId));
@@ -21,10 +23,23 @@ export default function TransactionFeed({ transactions, highlightId }) {
     });
   }
 
+  async function handleRequestException(e, t) {
+    e.stopPropagation();
+    if (!onRequestException) return;
+    setBusyId(t.id);
+    try {
+      await onRequestException(t);
+      setRequested((prev) => new Set(prev).add(t.id));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="ledger">
       {transactions.map((t) => {
         const isOpen = expanded.has(t.id);
+        const canRequestException = t.status === "BLOCKED" && t.exception_eligible && onRequestException;
         return (
           <div key={t.id} className={`ledger-row ${t.status}`} onClick={() => toggle(t.id)}>
             <div className="ledger-row__main">
@@ -58,6 +73,22 @@ export default function TransactionFeed({ transactions, highlightId }) {
                       {formatMoney(t.comparison.baselineAvg ?? t.comparison.baseline_avg)}. Esta operación es de{" "}
                       {formatMoney(t.comparison.amount)} ({t.comparison.multiplier}× más).
                     </div>
+                  )}
+                  {canRequestException && (
+                    requested.has(t.id) ? (
+                      <p style={{ marginTop: 12, color: "var(--steel)", fontSize: "0.9rem" }}>
+                        Ya le avisamos — está esperando su aprobación.
+                      </p>
+                    ) : (
+                      <button
+                        className="btn-secondary"
+                        style={{ marginTop: 12 }}
+                        disabled={busyId === t.id}
+                        onClick={(e) => handleRequestException(e, t)}
+                      >
+                        {busyId === t.id ? "Enviando…" : "Solicitar excepción"}
+                      </button>
+                    )
                   )}
                 </div>
               )}

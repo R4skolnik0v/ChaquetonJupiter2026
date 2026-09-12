@@ -35,3 +35,17 @@ export const STATUS_LABEL_ES = {
   BLOCKED: "Bloqueado",
   SCHEDULED: "Programado",
 };
+
+export const INTENT_LABEL_ES = {
+  CREATE_MISSION: "Misión creada",
+  MODIFY_MISSION: "Misión actualizada",
+  REVOKE_PERMISSION: "Permiso revocado",
+  GRANT_PERMISSION: "Permiso otorgado",
+  MODIFY_LIMIT: "Límite cambiado",
+  MODIFY_DURATION: "Duración cambiada",
+  ADD_TRUSTED_PERSON: "Persona agregada",
+  REMOVE_TRUSTED_PERSON: "Persona quitada",
+  ENABLE_CONTINUITY: "Continuidad configurada",
+  MODIFY_CONTINUITY: "Continuidad actualizada",
+  DISABLE_CONTINUITY: "Continuidad desactivada",
+};

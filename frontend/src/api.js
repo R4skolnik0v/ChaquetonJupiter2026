@@ -3,11 +3,11 @@
 // Every function here first tries the real backend (http://localhost:8000).
 // If that fails for any reason -- backend not started, CORS issue, no
 // network -- it transparently falls back to localEngine.js, which
-// re-implements the same rules and the same seeded scenario entirely in
+// re-implements the same rules and the same seeded scenarios entirely in
 // the browser. Components never need to know which path answered them.
 // -----------------------------------------------------------------------
 
-import { localApi, resetStore } from "./data/localEngine.js";
+import { localApi } from "./data/localEngine.js";
 
 const API_BASE = "http://localhost:8000/api";
 const TIMEOUT_MS = 2500;
@@ -46,6 +46,26 @@ async function withFallback(networkCall, localCall) {
 }
 
 export const api = {
+  // ---- Scenarios (demos + "empezar desde cero") ----
+  listScenarios: () =>
+    withFallback(
+      () => request(`/scenarios`),
+      () => localApi.listScenarios()
+    ),
+
+  createCustomScenario: (ownerName, delegateName, delegateRelationship) =>
+    withFallback(
+      () => request(`/scenarios/custom`, { method: "POST", body: JSON.stringify({ owner_name: ownerName, delegate_name: delegateName, delegate_relationship: delegateRelationship }) }),
+      () => localApi.createCustomScenario(ownerName, delegateName, delegateRelationship)
+    ),
+
+  resetScenario: (userId) =>
+    withFallback(
+      () => request(`/scenarios/${userId}/reset`, { method: "POST" }),
+      () => localApi.resetScenario(userId)
+    ),
+
+  // ---- Elder / Family core ----
   getSummary: (userId) =>
     withFallback(
       () => request(`/users/${userId}/summary`),
@@ -100,10 +120,10 @@ export const api = {
       () => localApi.getAlerts(userId, unresolvedOnly)
     ),
 
-  resolveAlert: (alertId, approvedBy, decision) =>
+  resolveAlert: (userId, alertId, approvedBy, decision) =>
     withFallback(
       () => request(`/audit/alerts/${alertId}/resolve?approved_by=${encodeURIComponent(approvedBy)}&decision=${decision}`, { method: "POST" }),
-      () => localApi.resolveAlert(alertId, approvedBy, decision)
+      () => localApi.resolveAlert(userId, alertId)
     ),
 
   getTrustNetwork: (userId) =>
@@ -116,6 +136,12 @@ export const api = {
     withFallback(
       () => request(`/trust-network`, { method: "POST", body: JSON.stringify(payload) }),
       () => localApi.addTrustMember(payload)
+    ),
+
+  removeTrustedPerson: (userId, trustId) =>
+    withFallback(
+      () => request(`/trust-network/${trustId}?user_id=${userId}`, { method: "DELETE" }),
+      () => localApi.removeTrustedPerson(userId, trustId)
     ),
 
   getContinuity: (userId) =>
@@ -142,10 +168,45 @@ export const api = {
       () => localApi.deactivateContinuity(userId)
     ),
 
-  // Only resets the in-browser fallback store. To reset the real backend,
-  // rerun `python3 -m app.seed` — this button can't reach into the API's
+  // ---- Exceptions: family asks, only the account owner can grant ----
+  requestException: (payload) =>
+    withFallback(
+      () => request(`/exceptions`, { method: "POST", body: JSON.stringify(payload) }),
+      () => localApi.requestException(payload)
+    ),
+
+  listExceptions: (userId, status) =>
+    withFallback(
+      () => request(`/exceptions?user_id=${userId}${status ? `&status=${status}` : ""}`),
+      () => localApi.listExceptions(userId, status)
+    ),
+
+  resolveException: (requestId, decision, resolvedBy) =>
+    withFallback(
+      () => request(`/exceptions/${requestId}/resolve`, { method: "POST", body: JSON.stringify({ decision, resolved_by: resolvedBy }) }),
+      () => localApi.resolveException(requestId, { decision, resolved_by: resolvedBy })
+    ),
+
+  // ---- Intent Engine: the elder's natural-language box for everything
+  // beyond the first mission -- interpret returns a proposal, nothing is
+  // written until execute is called with the (possibly edited) proposal. ----
+  interpretIntent: (userId, text) =>
+    withFallback(
+      () => request(`/intent/interpret`, { method: "POST", body: JSON.stringify({ user_id: userId, text }) }),
+      () => localApi.interpretIntent(userId, text)
+    ),
+
+  executeIntent: (userId, intent, proposal) =>
+    withFallback(
+      () => request(`/intent/execute`, { method: "POST", body: JSON.stringify({ user_id: userId, intent, proposal }) }),
+      () => localApi.executeIntent(userId, intent, proposal)
+    ),
+
+  // Only resets the in-browser fallback stores (all of them). To reset the
+  // real backend's data, use "Reiniciar escenario" (calls resetScenario)
+  // or rerun `python3 -m app.seed` -- this can't reach into the API's
   // database from the frontend, and shouldn't pretend to.
-  resetLocalDemoData: () => {
-    resetStore();
+  resetAllLocalScenarios: () => {
+    localApi.resetAllLocalScenarios();
   },
 };

@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { List, CalendarClock, Sparkles, LifeBuoy, CircleCheck, TriangleAlert } from "lucide-react";
+import { List, CalendarClock, Sparkles, Users, ShieldCheck, CircleCheck, TriangleAlert } from "lucide-react";
 import { api } from "../../api.js";
 import { formatMoney, formatDateLong, CATEGORY_ICONS } from "../../utils.js";
 
-export default function ElderHome({ userId, onNavigate }) {
+export default function ElderHome({ userId, onNavigate, onOpenIntentBox, pendingCount = 0 }) {
   const [summary, setSummary] = useState(null);
 
   useEffect(() => {
@@ -14,11 +14,20 @@ export default function ElderHome({ userId, onNavigate }) {
     return <p style={{ fontSize: "1.1rem", color: "var(--ink-soft)" }}>Cargando tu información…</p>;
   }
 
-  const firstName = summary.name.split(" ")[0];
+  const firstName = (summary.name || "").split(" ")[0] || "";
 
   return (
     <div>
-      <h1 className="elder-greeting">Buenos días, {firstName} 👋</h1>
+      <h1 className="elder-greeting">{firstName ? `Buenos días, ${firstName} 👋` : "Buenos días 👋"}</h1>
+
+      {pendingCount > 0 && (
+        <button className="elder-help-banner" onClick={() => onNavigate("approvals")} style={{ background: "var(--amber-bg)", color: "var(--amber)", borderColor: "rgba(185,120,43,0.3)" }}>
+          Tu familia te está pidiendo algo
+          <span className="sub">
+            {pendingCount === 1 ? "Hay 1 solicitud esperando tu aprobación." : `Hay ${pendingCount} solicitudes esperando tu aprobación.`}
+          </span>
+        </button>
+      )}
 
       <div className="elder-balance-card">
         <p className="elder-balance-label">Disponible</p>
@@ -50,6 +59,11 @@ export default function ElderHome({ userId, onNavigate }) {
         </>
       )}
 
+      <button className="elder-help-banner" onClick={() => onOpenIntentBox()}>
+        🤝 ¿Quieres cambiar algo?
+        <span className="sub">Cuéntamelo con tus palabras — quién te ayuda, con qué, o cuánto puede gastar.</span>
+      </button>
+
       <div className="elder-actions">
         <button className="elder-button" onClick={() => onNavigate("movements")}>
           Ver mis movimientos <List size={22} />
@@ -60,8 +74,11 @@ export default function ElderHome({ userId, onNavigate }) {
         <button className="elder-button" onClick={() => onNavigate("explain")}>
           Explícame mis gastos <Sparkles size={22} />
         </button>
-        <button className="elder-button primary" onClick={() => onNavigate("help")}>
-          Ayuda <LifeBuoy size={22} />
+        <button className="elder-button" onClick={() => onNavigate("people")}>
+          Personas que me ayudan <Users size={22} />
+        </button>
+        <button className="elder-button primary" onClick={() => onNavigate("continuity")}>
+          Mi continuidad <ShieldCheck size={22} />
         </button>
       </div>
     </div>

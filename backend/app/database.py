@@ -19,6 +19,9 @@ Tables (mirrors the entities described in the brief):
   approvals           - how a family member resolved an alert
   audit_log           - the human-readable "why" behind every decision
   continuity_rules    - the pre-authorized plan for "what happens if I can't manage this"
+  exception_requests  - a family member asking the owner to approve a one-time
+                        transaction that the active mission would otherwise block
+                        (see app/routers/exceptions.py)
 """
 
 import sqlite3
@@ -60,6 +63,8 @@ CREATE TABLE IF NOT EXISTS missions (
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
     monthly_limit REAL NOT NULL,
+    per_transaction_limit REAL,         -- optional hard cap PER transaction (e.g. "hasta $500 por pago de CFE").
+                                         -- NULL means "no extra cap beyond the monthly total".
     allowed_categories TEXT NOT NULL,   -- JSON list, e.g. ["CFE","Agua","Farmacia"]
     status TEXT NOT NULL DEFAULT 'active',   -- active | expired | ended_early
     source_text TEXT                    -- the free-text request the owner typed in, if any
@@ -81,7 +86,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount REAL NOT NULL,
     timestamp TEXT NOT NULL,
     status TEXT NOT NULL,               -- APPROVED | REVIEW | BLOCKED
-    reasons TEXT NOT NULL               -- JSON list of human-readable reasons
+    reasons TEXT NOT NULL,              -- JSON list of human-readable reasons
+    exception_eligible INTEGER NOT NULL DEFAULT 0  -- BLOCKED purely by a spending cap -> family can ask for a one-time exception
 );
 
 CREATE TABLE IF NOT EXISTS behavior_profiles (
@@ -132,6 +138,20 @@ CREATE TABLE IF NOT EXISTS continuity_rules (
     days INTEGER NOT NULL DEFAULT 30,
     active INTEGER NOT NULL DEFAULT 0,
     activated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS exception_requests (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    mission_id TEXT NOT NULL REFERENCES missions(id),
+    merchant TEXT NOT NULL,
+    category TEXT NOT NULL,
+    amount REAL NOT NULL,
+    requested_by TEXT NOT NULL,          -- delegate's name, e.g. "Laura"
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | denied
+    created_at TEXT NOT NULL,
+    resolved_at TEXT,
+    resulting_transaction_id TEXT REFERENCES transactions(id)
 );
 """
 
