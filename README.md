@@ -1,4 +1,4 @@
-# Acompañamiento Financiero — María &amp; Laura
+# Acompañamiento Financiero — 
 
 Prototipo para el hackathon de Capital One.
 
@@ -27,20 +27,28 @@ reglas en tiempo real.
 
 ## 2. Para quién es
 
-- **María** (72 años): quiere ver que su dinero está bien, sin jerga
-  financiera ni pantallas saturadas.
-- **Laura** (su hija): quiere ayudar de forma concreta, con visibilidad y
-  límites claros, sin tener que "tomar el control" de la cuenta de su mamá.
-- **Carlos** (sobrino, respaldo): puede revisar alertas, pero no tiene
-  poder de gasto — pertenecer a la red de confianza no otorga permisos por
-  sí solo.
+La plataforma está diseñada para dos tipos de usuarios:
+
+- **Adultos mayores:** pueden consultar su dinero, entender sus gastos y
+  revisar movimientos desde una interfaz simple, clara y sin lenguaje
+  financiero complicado.
+
+- **Familiares o personas de confianza:** pueden ayudar a administrar
+  tareas específicas, como pagar servicios o revisar alertas, sin necesidad
+  de tener control total sobre la cuenta.
+
+La plataforma también permite agregar personas de respaldo que pueden 
+recibir alertas o ayudar en situaciones específicas. Estar dentro
+de la red de confianza no significa tener automáticamente acceso al dinero:
+cada persona recibe únicamente los permisos que el titular autorice.
 
 ## 3. Cómo funciona, en una frase
 
-María describe lo que necesita → el **Mission Compiler** propone una
-misión estructurada → María la confirma → cada transacción que llegue bajo
-esa misión pasa por un **Decision Engine** determinista que la aprueba,
-la bloquea, o la manda a revisión — explicando siempre por qué.
+El adulto mayor indica qué tipo de ayuda necesita → el **Mission Compiler**
+convierte esa intención en una misión con permisos y límites claros → el
+usuario la confirma → cada transacción se analiza mediante reglas de
+autorización y comportamiento → el **Decision Engine** decide si se aprueba,
+se bloquea o requiere revisión, explicando siempre el motivo.
 
 ## 4. Qué hace cada modo
 
