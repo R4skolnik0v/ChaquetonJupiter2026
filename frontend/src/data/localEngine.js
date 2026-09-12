@@ -279,16 +279,299 @@ function compileMissionLocal(text, baselines) {
 }
 
 // ---------------------------------------------------------------------
-// Scenario definitions -- mirrors backend/app/scenarios.py exactly (same
-// ids, same numbers) so switching to/from the local fallback mid-demo
-// never shows different data.
+// Intent Engine (mirrors engines/intent_engine.py) -- the "IA" the account
+// owner talks to for everything beyond "create my first mission" (that
+// narrower case reuses compileMissionLocal above, same as the backend).
 // ---------------------------------------------------------------------
+
+function stripAccents(s) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function norm(words) {
+  return words.map(stripAccents);
+}
+
+const SINGLE_CATEGORY_KEYWORDS = {
+  CFE: norm(["cfe", "luz", "electricidad"]),
+  Agua: norm(["agua"]),
+  Gas: norm(["gas"]),
+  Farmacia: norm(["farmacia", "medicin", "receta", "medicamento"]),
+  Supermercado: norm(["supermercado", "comida", "despensa", "mandado"]),
+};
+
+const ACTION_KEYWORDS = {
+  Transferencia: norm(["transferencia", "transferir", "transferencias", "transfiera"]),
+  Retiro: norm(["retiro", "retirar", "sacar dinero", "sacar efectivo", "efectivo"]),
+  "Cambio de beneficiario": norm(["beneficiario"]),
+  "Préstamo": norm(["prestamo", "credito"]),
+};
+
+const CONTINUITY_WORDS = norm(["continuidad", "no pueda administrar", "no puedo administrar", "si no puedo",
+  "mientras no pueda", "incapacitad", "no pueda encargarme"]);
+const DISABLE_CONTINUITY_WORDS = norm(["desactiva", "cancela", "termina", "apaga", "detener", "quita la continuidad"]);
+const ADD_PERSON_WORDS = norm(["persona de confianza", "agregar a", "añadir a", "agrega a", "añade a",
+  "quiero agregar", "quiero añadir", "nueva persona"]);
+const REMOVE_PERSON_WORDS = norm(["quitar a", "eliminar a", "remueve a", "sacalo", "sacala", "borra a", "quita a", "ya no confio en"]);
+const REVOKE_WORDS = norm(["ya no quiero que", "quitale", "no quiero que", "no puede", "no deberia poder",
+  "quitale el permiso", "quitarle el permiso", "revocar", "revoca", "no debe poder"]);
+const GRANT_WORDS = norm(["quiero que", "autoriza a", "dale permiso", "permite que", "deja que", "que pueda"]);
+const LIMIT_WORDS = norm(["limite", "tope"]);
+const DURATION_WORDS = norm(["duracion", "mas tiempo", "extiende", "extender", "dias mas"]);
+const QUESTION_WORDS = norm(["cuanto", "como van", "que gaste", "explicame", "como esta"]);
+
+function detectSingleTarget(lower) {
+  for (const [action, kws] of Object.entries(ACTION_KEYWORDS)) if (kws.some((k) => lower.includes(k))) return action;
+  for (const [cat, kws] of Object.entries(SINGLE_CATEGORY_KEYWORDS)) if (kws.some((k) => lower.includes(k))) return cat;
+  return null;
+}
+
+function resolvePerson(lowerText, trustNetwork) {
+  for (const m of trustNetwork) {
+    const name = stripAccents((m.name || "").toLowerCase());
+    if (name && new RegExp(`\\b${name}\\b`).test(lowerText)) return m;
+  }
+  for (const m of trustNetwork) {
+    const rel = stripAccents((m.relationship || "").toLowerCase());
+    if (rel && lowerText.includes(rel)) return m;
+  }
+  return null;
+}
+
+function findActiveMissionFor(person, missions) {
+  if (!person) return null;
+  const nowIso = new Date().toISOString();
+  return missions.find((m) => m.delegate_id === person.member_id && m.status === "active" && m.end_date >= nowIso) || null;
+}
+
+function extractAmount(lower) {
+  const m = lower.match(/\$\s?(\d[\d,]*)(?:\.\d+)?/) || lower.match(/(\d[\d,]{2,})\s*pesos/);
+  if (!m) return null;
+  const v = parseFloat(m[1].replace(/,/g, ""));
+  return Number.isNaN(v) ? null : v;
+}
+
+function extractDaysMentioned(lower) {
+  const m = lower.match(/(\d+)\s*(dia|semana|mes)/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  if (m[2].startsWith("semana")) return n * 7;
+  if (m[2].startsWith("mes")) return n * 30;
+  return n;
+}
+
+function extractCapitalizedName(text, trustNetwork) {
+  const existing = new Set(trustNetwork.map((m) => (m.name || "").toLowerCase()));
+  const stop = new Set(["quiero", "ya", "voy", "necesito"]);
+  const matches = text.match(/[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/g) || [];
+  for (const w of matches) {
+    if (!existing.has(w.toLowerCase()) && !stop.has(w.toLowerCase())) return w;
+  }
+  return null;
+}
+
+function proposeRevoke(person, target, mission) {
+  if (NON_DELEGABLE_ACTIONS.includes(target)) {
+    return {
+      intent: "REVOKE_PERMISSION", requires_confirmation: true,
+      confirmation_text: `Entendí que quieres quitarle a ${person.name} el permiso para '${target}'. Buena noticia: eso nunca estuvo permitido para nadie, así que no hay nada que cambiar.`,
+      proposal: { delegate_name: person.name, category: target, mission_id: mission ? mission.id : null, already_blocked: true },
+    };
+  }
+  if (!mission) {
+    return {
+      intent: "REVOKE_PERMISSION", requires_confirmation: true,
+      confirmation_text: `${person.name} no tiene ninguna misión activa ahora mismo, así que no hay nada que quitarle en '${target}'.`,
+      proposal: { delegate_name: person.name, category: target, mission_id: null, already_blocked: true },
+    };
+  }
+  if (!mission.allowed_categories.includes(target)) {
+    return {
+      intent: "REVOKE_PERMISSION", requires_confirmation: true,
+      confirmation_text: `${person.name} ya no podía hacer eso -- '${target}' no estaba entre lo que tenía permitido.`,
+      proposal: { delegate_name: person.name, category: target, mission_id: mission.id, already_blocked: true },
+    };
+  }
+  return {
+    intent: "REVOKE_PERMISSION", requires_confirmation: true,
+    confirmation_text: `Entendí que quieres quitarle a ${person.name} el permiso para '${target}'.`,
+    proposal: {
+      delegate_name: person.name, category: target, mission_id: mission.id, already_blocked: false,
+      remaining_categories: mission.allowed_categories.filter((c) => c !== target),
+    },
+  };
+}
+
+function proposeGrant(person, target, mission) {
+  if (NON_DELEGABLE_ACTIONS.includes(target)) {
+    return {
+      intent: "GRANT_PERMISSION", requires_confirmation: true,
+      confirmation_text: `'${target}' nunca se puede autorizar, ni siquiera para ${person.name} -- es una regla fija del sistema.`,
+      proposal: { delegate_name: person.name, category: target, mission_id: mission.id, already_allowed: false, blocked_forever: true },
+    };
+  }
+  if (mission.allowed_categories.includes(target)) {
+    return {
+      intent: "GRANT_PERMISSION", requires_confirmation: true,
+      confirmation_text: `${person.name} ya puede hacer eso -- '${target}' ya estaba permitido.`,
+      proposal: { delegate_name: person.name, category: target, mission_id: mission.id, already_allowed: true },
+    };
+  }
+  return {
+    intent: "GRANT_PERMISSION", requires_confirmation: true,
+    confirmation_text: `Entendí que quieres que ${person.name} también pueda encargarse de '${target}'.`,
+    proposal: { delegate_name: person.name, category: target, mission_id: mission.id, already_allowed: false, new_categories: [...mission.allowed_categories, target] },
+  };
+}
+
+function proposeRemoveTrustedPerson(person) {
+  return {
+    intent: "REMOVE_TRUSTED_PERSON", requires_confirmation: true,
+    confirmation_text: `Entendí que ya no quieres que ${person.name} pueda ayudarte con nada. Esto termina cualquier misión activa que tenga.`,
+    proposal: { trust_id: person.trust_id, member_id: person.member_id, name: person.name },
+  };
+}
+
+function proposeAddTrustedPerson(text, lower, trustNetwork) {
+  const name = extractCapitalizedName(text, trustNetwork);
+  const relationship = detectRelationship(lower) || "familiar";
+  return {
+    intent: "ADD_TRUSTED_PERSON", requires_confirmation: true,
+    confirmation_text: name
+      ? `Entendí que quieres agregar a ${name} (${relationship}) para que pueda ayudarte.`
+      : "Quiero agregar a alguien de tu confianza, pero no logré identificar el nombre -- puedes escribirlo abajo.",
+    proposal: { name, relationship, role: "Ayudante", can_pay_bills: true, can_review_alerts: true },
+  };
+}
+
+function proposeContinuity(text, lower, context, isUpdate) {
+  const days = detectDurationDays(text);
+  const { categories } = detectCategories(text);
+  const limit = suggestLimit(categories, context.baselines);
+  const person = resolvePerson(lower, context.trustNetwork);
+  const existing = context.continuityRule;
+  const delegateName = person ? person.name : existing ? existing.delegate_name : null;
+  const backupName = existing ? existing.backup_name : null;
+  const intent = isUpdate ? "MODIFY_CONTINUITY" : "ENABLE_CONTINUITY";
+  const verb = isUpdate ? "actualizar" : "configurar";
+  const who = delegateName || "la persona que elijas";
+  return {
+    intent, requires_confirmation: true,
+    confirmation_text: `Entendí que quieres ${verb} tu plan de continuidad: si no puedes administrar tus finanzas, ${who} podría ayudarte con esto, hasta $${limit.toLocaleString()} al mes, por ${days} días.`,
+    proposal: { trigger_label: "Si no puede administrar sus finanzas temporalmente", delegate_name: delegateName, backup_name: backupName, allowed_categories: categories, monthly_limit: limit, days },
+  };
+}
+
+function proposeDisableContinuity() {
+  return { intent: "DISABLE_CONTINUITY", requires_confirmation: true, confirmation_text: "Entendí que quieres desactivar tu plan de continuidad ahora mismo.", proposal: { no_change: false } };
+}
+
+function proposeAlreadyInactiveContinuity() {
+  return { intent: "DISABLE_CONTINUITY", requires_confirmation: true, confirmation_text: "Tu plan de continuidad ya está desactivado -- no hay nada que apagar.", proposal: { no_change: true } };
+}
+
+function proposeModifyLimit(person, mission, amount, lower) {
+  const perTx = ["por transaccion", "por pago", "cada vez"].some((w) => lower.includes(w));
+  const field = perTx ? "per_transaction_limit" : "monthly_limit";
+  const label = perTx ? "por transacción" : "al mes";
+  return {
+    intent: "MODIFY_LIMIT", requires_confirmation: true,
+    confirmation_text: `Entendí que quieres cambiar el límite de ${person.name} a $${amount.toLocaleString()} ${label}.`,
+    proposal: { delegate_name: person.name, mission_id: mission.id, field, new_value: amount },
+  };
+}
+
+function proposeModifyDuration(person, mission, days, lower) {
+  const extend = ["mas", "extiende", "extender"].some((w) => lower.includes(w));
+  return {
+    intent: "MODIFY_DURATION", requires_confirmation: true,
+    confirmation_text: extend
+      ? `Entendí que quieres darle ${days} días más a la misión de ${person.name}.`
+      : `Entendí que quieres que la misión de ${person.name} dure ${days} días en total.`,
+    proposal: { delegate_name: person.name, mission_id: mission.id, days, mode: extend ? "extend" : "set" },
+  };
+}
+
+function proposeCreateMission(text, context) {
+  const draft = compileMissionLocal(text, context.baselines);
+  let delegateName = null;
+  if (draft.delegate_relationship) {
+    const m = context.trustNetwork.find((t) => t.relationship === draft.delegate_relationship);
+    if (m) delegateName = m.name;
+  }
+  if (!delegateName) {
+    const person = resolvePerson(stripAccents(text.toLowerCase()), context.trustNetwork);
+    if (person) delegateName = person.name;
+  }
+  return {
+    intent: "CREATE_MISSION", requires_confirmation: true,
+    confirmation_text: `Entendí que quieres que ${delegateName || "alguien de tu confianza"} te ayude con ${draft.purpose.toLowerCase()}, por ${draft.days} días.`,
+    proposal: { delegate_name: delegateName, purpose: draft.purpose, days: draft.days, allowed_categories: draft.allowed_categories, suggested_limit: draft.suggested_limit, forbidden_actions: draft.forbidden_actions, source_text: text },
+  };
+}
+
+function proposeModifyMission(text, person, mission, context) {
+  const draft = compileMissionLocal(text, context.baselines);
+  return {
+    intent: "MODIFY_MISSION", requires_confirmation: true,
+    confirmation_text: `Entendí que quieres cambiar la misión de ${person.name}.`,
+    proposal: { delegate_name: person.name, mission_id: mission.id, purpose: draft.purpose, days: draft.days, allowed_categories: draft.allowed_categories, suggested_limit: draft.suggested_limit, source_text: text },
+  };
+}
+
+function proposeGeneralQuestion() {
+  return {
+    intent: "GENERAL_FINANCIAL_QUESTION", requires_confirmation: false, confirmation_text: null,
+    proposal: { answer: "Puedo ayudarte a ver tus gastos en \u201cExplícame mis gastos\u201d, o puedes escribir aquí mismo qué quieres cambiar -- quién te ayuda, con qué, cuánto, o por cuánto tiempo." },
+  };
+}
+
+function classifyAndPropose(text, context) {
+  const lower = stripAccents(text.toLowerCase());
+  const person = resolvePerson(lower, context.trustNetwork);
+  const target = detectSingleTarget(lower);
+  const activeMission = findActiveMissionFor(person, context.missions);
+
+  if (CONTINUITY_WORDS.some((w) => lower.includes(w))) {
+    const wantsDisable = DISABLE_CONTINUITY_WORDS.some((w) => lower.includes(w));
+    if (wantsDisable) {
+      if (context.continuityRule && context.continuityRule.active) return proposeDisableContinuity();
+      return proposeAlreadyInactiveContinuity();
+    }
+    return proposeContinuity(text, lower, context, !!context.continuityRule);
+  }
+
+  if (ADD_PERSON_WORDS.some((w) => lower.includes(w))) return proposeAddTrustedPerson(text, lower, context.trustNetwork);
+
+  if (person && REMOVE_PERSON_WORDS.some((w) => lower.includes(w))) return proposeRemoveTrustedPerson(person);
+
+  if (person && target) {
+    if (REVOKE_WORDS.some((w) => lower.includes(w))) return proposeRevoke(person, target, activeMission);
+    if (GRANT_WORDS.some((w) => lower.includes(w)) && activeMission) return proposeGrant(person, target, activeMission);
+  }
+
+  if (person && REVOKE_WORDS.some((w) => lower.includes(w)) && !target) return proposeRemoveTrustedPerson(person);
+
+  if (person && activeMission) {
+    const amount = extractAmount(lower);
+    if (amount && LIMIT_WORDS.some((w) => lower.includes(w))) return proposeModifyLimit(person, activeMission, amount, lower);
+    const days = extractDaysMentioned(lower);
+    if (days && DURATION_WORDS.some((w) => lower.includes(w))) return proposeModifyDuration(person, activeMission, days, lower);
+  }
+
+  if (!person && QUESTION_WORDS.some((w) => lower.includes(w))) return proposeGeneralQuestion();
+
+  if (person && activeMission) return proposeModifyMission(text, person, activeMission, context);
+  return proposeCreateMission(text, context);
+}
+
+
 const SCENARIOS = [
   {
     id: "maria", name: "María Balcázar", age: 72, balance: 12430.0,
     emoji: "🧓🏽", tagline: "Delegación segura de tareas",
     headline: "María necesita ayuda con sus servicios mientras se recupera de una cirugía.",
-    delegate: { name: "Laura", relationship: "hija" }, backup: { name: "Carlos", relationship: "sobrino" },
+    delegate: { name: "Laura", relationship: "hija" }, backup: { name: "Carlos", relationship: "hijo" },
     mission: {
       purpose: "Ayudar con gastos esenciales mientras María se recupera", days: 30,
       monthly_limit: 4000, per_transaction_limit: null,
@@ -654,7 +937,7 @@ const localApi = {
       status: decision.status, reasons: decision.reasons, exception_eligible: decision.exception_eligible,
     };
     store.transactions.push(tx);
-    store.auditLog.unshift({ id: uid(), action: decision.status, reasons: decision.reasons, timestamp: now, merchant, category, amount });
+    store.auditLog.unshift({ id: uid(), action: decision.status, reasons: decision.reasons, timestamp: now, merchant, category, amount, kind: "transaction" });
     if (decision.status !== "APPROVED") {
       store.alerts.unshift({
         id: uid(), user_id, transaction_id: id, type: decision.status === "BLOCKED" ? "blocked_attempt" : "anomaly",
@@ -697,8 +980,32 @@ const localApi = {
     return Promise.resolve({ id: trustId, member_id: memberId });
   },
 
+  // Only ever called from Elder Mode (directly, or via executeIntent's
+  // REMOVE_TRUSTED_PERSON) -- ends any active mission for that person too,
+  // mirroring routers/trust.py's remove_trust_member_row.
+  removeTrustedPerson(userId, trustId) {
+    const store = getStore(userId);
+    const trustRow = store.trustNetwork.find((t) => t.id === trustId);
+    if (!trustRow) return Promise.reject(new Error("No se encontró a esa persona en la red de confianza"));
+    store.missions.forEach((m) => {
+      if (m.delegate_id === trustRow.member_id && m.status === "active") m.status = "ended_early";
+    });
+    store.trustNetwork = store.trustNetwork.filter((t) => t.id !== trustId);
+    return Promise.resolve({ ok: true });
+  },
+
   getContinuity(userId) {
-    return Promise.resolve(getStore(userId).continuityRule || null);
+    const store = getStore(userId);
+    const rule = store.continuityRule;
+    if (!rule) return Promise.resolve(null);
+    let status = "configurado";
+    if (rule.active) {
+      const mission = store.missions.find((m) => m.owner_id === userId && m.source_text === "Activado por Continuidad Financiera");
+      const nowIso = new Date().toISOString();
+      if (mission && mission.status === "active" && mission.end_date >= nowIso) status = "activo";
+      else status = "expirado";
+    }
+    return Promise.resolve({ ...rule, status });
   },
 
   setContinuityRule(payload) {
@@ -766,16 +1073,159 @@ const localApi = {
         "Esta aprobación no cambia el límite de la misión -- solo autoriza este pago.",
       ];
       store.transactions.push({ id: txId, user_id: request.user_id, mission_id: request.mission_id, merchant: request.merchant, category: request.category, amount: request.amount, timestamp: now, status: "APPROVED", reasons });
-      store.auditLog.unshift({ id: uid(), action: "APPROVED", reasons, timestamp: now, merchant: request.merchant, category: request.category, amount: request.amount });
+      store.auditLog.unshift({ id: uid(), action: "APPROVED", reasons, timestamp: now, merchant: request.merchant, category: request.category, amount: request.amount, kind: "transaction" });
     } else {
       const reasons = [`${resolved_by} no aprobó esta excepción.`];
       store.transactions.push({ id: txId, user_id: request.user_id, mission_id: request.mission_id, merchant: request.merchant, category: request.category, amount: request.amount, timestamp: now, status: "BLOCKED", reasons });
-      store.auditLog.unshift({ id: uid(), action: "BLOCKED", reasons, timestamp: now, merchant: request.merchant, category: request.category, amount: request.amount });
+      store.auditLog.unshift({ id: uid(), action: "BLOCKED", reasons, timestamp: now, merchant: request.merchant, category: request.category, amount: request.amount, kind: "transaction" });
     }
     request.status = decision;
     request.resolved_at = now;
     request.resulting_transaction_id = txId;
     return Promise.resolve({ ok: true, status: decision, transaction_id: txId });
+  },
+
+  // ---- Intent Engine: interpret (read-only) then execute (only after the
+  // account owner confirms) -- mirrors routers/intent.py exactly. ----
+  interpretIntent(userId, text) {
+    const store = getStore(userId);
+    const trustNetwork = store.trustNetwork.map((t) => {
+      const member = store.familyMembers.find((f) => f.id === t.member_id);
+      return { trust_id: t.id, member_id: t.member_id, name: member?.name, relationship: member?.relationship, role: t.role };
+    });
+    const txs = nonScheduled(store.transactions.filter((t) => t.user_id === userId));
+    const categories = [...new Set(txs.map((t) => t.category))];
+    const baselines = {};
+    for (const c of categories) baselines[c] = buildBaseline(txs, c);
+    const context = { ownerId: userId, trustNetwork, missions: store.missions, continuityRule: store.continuityRule, baselines };
+    const result = classifyAndPropose(text, context);
+    return Promise.resolve({ ...result, source_text: text });
+  },
+
+  executeIntent(userId, intentName, proposal) {
+    const store = getStore(userId);
+    const p = proposal;
+    const now = new Date().toISOString();
+    let result = {};
+    let auditReason = null;
+    const findMission = (id) => store.missions.find((m) => m.id === id);
+
+    switch (intentName) {
+      case "CREATE_MISSION": {
+        const delegate = store.familyMembers.find((f) => f.name === p.delegate_name);
+        if (!delegate) return Promise.reject(new Error(`No se encontró a ${p.delegate_name}`));
+        const id = uid();
+        store.missions.push({
+          id, owner_id: userId, delegate_id: delegate.id, delegate_name: delegate.name, purpose: p.purpose,
+          start_date: now, end_date: daysAhead(p.days), monthly_limit: p.suggested_limit,
+          per_transaction_limit: p.per_transaction_limit || null, allowed_categories: p.allowed_categories,
+          forbidden_actions: [...NON_DELEGABLE_ACTIONS], status: "active", source_text: p.source_text,
+        });
+        result = { mission_id: id };
+        auditReason = `Se creó una misión nueva para ${p.delegate_name}: ${p.purpose}.`;
+        break;
+      }
+      case "MODIFY_MISSION": {
+        const m = findMission(p.mission_id);
+        if (!m) return Promise.reject(new Error("Misión no encontrada"));
+        m.allowed_categories = p.allowed_categories;
+        if (p.suggested_limit != null) m.monthly_limit = p.suggested_limit;
+        auditReason = `Se actualizó la misión de ${p.delegate_name}.`;
+        break;
+      }
+      case "REVOKE_PERMISSION": {
+        if (p.already_blocked) {
+          auditReason = `Se confirmó que '${p.category}' sigue sin estar permitido para ${p.delegate_name}.`;
+        } else {
+          const m = findMission(p.mission_id);
+          if (m) m.allowed_categories = p.remaining_categories;
+          auditReason = `Se le quitó a ${p.delegate_name} el permiso para '${p.category}'.`;
+        }
+        break;
+      }
+      case "GRANT_PERMISSION": {
+        if (p.already_allowed || p.blocked_forever) {
+          const why = p.already_allowed ? "ya estaba permitido" : "está bloqueado permanentemente";
+          auditReason = `Sin cambios: '${p.category}' ${why} para ${p.delegate_name}.`;
+        } else {
+          const m = findMission(p.mission_id);
+          if (m) m.allowed_categories = p.new_categories;
+          auditReason = `Se le dio a ${p.delegate_name} permiso para '${p.category}'.`;
+        }
+        break;
+      }
+      case "MODIFY_LIMIT": {
+        const m = findMission(p.mission_id);
+        if (!m) return Promise.reject(new Error("Misión no encontrada"));
+        if (p.field === "per_transaction_limit") m.per_transaction_limit = p.new_value;
+        else m.monthly_limit = p.new_value;
+        auditReason = `Se cambió el límite de ${p.delegate_name} a $${p.new_value.toLocaleString()}.`;
+        break;
+      }
+      case "MODIFY_DURATION": {
+        const m = findMission(p.mission_id);
+        if (!m) return Promise.reject(new Error("Misión no encontrada"));
+        const base = new Date(p.mode === "extend" ? m.end_date : m.start_date);
+        base.setDate(base.getDate() + p.days);
+        m.end_date = base.toISOString();
+        auditReason = `Se cambió la duración de la misión de ${p.delegate_name}.`;
+        break;
+      }
+      case "ADD_TRUSTED_PERSON": {
+        if (!p.name) return Promise.reject(new Error("No se identificó el nombre de la persona."));
+        const memberId = uid();
+        store.familyMembers.push({ id: memberId, user_id: userId, name: p.name, relationship: p.relationship || "familiar" });
+        const trustId = uid();
+        store.trustNetwork.push({
+          id: trustId, user_id: userId, member_id: memberId, role: p.role || "Ayudante",
+          can_pay_bills: p.can_pay_bills !== false, can_review_alerts: p.can_review_alerts !== false, can_change_beneficiaries: false,
+        });
+        result = { trust_id: trustId, member_id: memberId };
+        auditReason = `Se agregó a ${p.name} como persona de confianza.`;
+        break;
+      }
+      case "REMOVE_TRUSTED_PERSON": {
+        const trustRow = store.trustNetwork.find((t) => t.id === p.trust_id);
+        if (!trustRow) return Promise.reject(new Error("No se encontró a esa persona en la red de confianza"));
+        store.missions.forEach((m) => { if (m.delegate_id === trustRow.member_id && m.status === "active") m.status = "ended_early"; });
+        store.trustNetwork = store.trustNetwork.filter((t) => t.id !== p.trust_id);
+        auditReason = `Se quitó a ${p.name} de la red de confianza.`;
+        break;
+      }
+      case "ENABLE_CONTINUITY":
+      case "MODIFY_CONTINUITY": {
+        const delegate = store.familyMembers.find((f) => f.name === p.delegate_name);
+        if (!delegate) return Promise.reject(new Error(`No se encontró a ${p.delegate_name}`));
+        const backup = p.backup_name ? store.familyMembers.find((f) => f.name === p.backup_name) : null;
+        store.continuityRule = {
+          ...(store.continuityRule || { id: uid(), active: false, activated_at: null }),
+          user_id: userId, trigger_label: p.trigger_label, delegate_id: delegate.id, delegate_name: delegate.name,
+          backup_id: backup ? backup.id : null, backup_name: backup ? backup.name : null,
+          allowed_categories: p.allowed_categories, monthly_limit: p.monthly_limit, days: p.days,
+        };
+        auditReason = intentName === "ENABLE_CONTINUITY" ? "Se configuró el plan de continuidad." : "Se actualizó el plan de continuidad.";
+        break;
+      }
+      case "DISABLE_CONTINUITY": {
+        if (!p.no_change) {
+          const rule = store.continuityRule;
+          if (rule) rule.active = false;
+          const mission = store.missions.find((m) => m.owner_id === userId && m.source_text === "Activado por Continuidad Financiera" && m.status === "active");
+          if (mission) mission.status = "ended_early";
+          auditReason = "Se desactivó el plan de continuidad.";
+        } else {
+          auditReason = "Se confirmó que el plan de continuidad ya estaba desactivado.";
+        }
+        break;
+      }
+      case "GENERAL_FINANCIAL_QUESTION":
+        return Promise.resolve({ ok: true, no_op: true });
+      default:
+        return Promise.reject(new Error(`Intent desconocido: ${intentName}`));
+    }
+
+    store.auditLog.unshift({ id: uid(), action: intentName, reasons: [auditReason], timestamp: now, kind: "account_change" });
+    return Promise.resolve({ ok: true, ...result });
   },
 
   // Kept for the "Reiniciar demo" affordance -- resets EVERY local

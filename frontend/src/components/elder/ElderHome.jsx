@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { List, CalendarClock, Sparkles, LifeBuoy, CircleCheck, TriangleAlert } from "lucide-react";
+import { List, CalendarClock, Sparkles, Users, ShieldCheck, CircleCheck, TriangleAlert } from "lucide-react";
 import { api } from "../../api.js";
 import { formatMoney, formatDateLong, CATEGORY_ICONS } from "../../utils.js";
 
-export default function ElderHome({ userId, onNavigate, pendingCount = 0 }) {
+export default function ElderHome({ userId, onNavigate, onOpenIntentBox, pendingCount = 0 }) {
   const [summary, setSummary] = useState(null);
 
   useEffect(() => {
@@ -59,9 +59,9 @@ export default function ElderHome({ userId, onNavigate, pendingCount = 0 }) {
         </>
       )}
 
-      <button className="elder-help-banner" onClick={() => onNavigate("request-help")}>
-        🤝 ¿Necesitas ayuda con tu dinero?
-        <span className="sub">Cuéntanos qué necesitas y nosotros lo organizamos contigo.</span>
+      <button className="elder-help-banner" onClick={() => onOpenIntentBox()}>
+        🤝 ¿Quieres cambiar algo?
+        <span className="sub">Cuéntamelo con tus palabras — quién te ayuda, con qué, o cuánto puede gastar.</span>
       </button>
 
       <div className="elder-actions">
@@ -74,8 +74,11 @@ export default function ElderHome({ userId, onNavigate, pendingCount = 0 }) {
         <button className="elder-button" onClick={() => onNavigate("explain")}>
           Explícame mis gastos <Sparkles size={22} />
         </button>
-        <button className="elder-button primary" onClick={() => onNavigate("help")}>
-          Ayuda <LifeBuoy size={22} />
+        <button className="elder-button" onClick={() => onNavigate("people")}>
+          Personas que me ayudan <Users size={22} />
+        </button>
+        <button className="elder-button primary" onClick={() => onNavigate("continuity")}>
+          Mi continuidad <ShieldCheck size={22} />
         </button>
       </div>
     </div>

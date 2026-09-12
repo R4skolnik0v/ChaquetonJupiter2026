@@ -7,7 +7,7 @@ import AuditTrail from "./AuditTrail.jsx";
 
 // NOTE: there is deliberately no "Nueva misión" / Mission Compiler tab here.
 // The family member receives permissions that the account owner already
-// authorized in Elder Mode (see components/elder/ElderRequestHelp.jsx) --
+// authorized in Elder Mode (see components/elder/ElderIntentBox.jsx) --
 // they never get to define their own permissions. See FamilyDashboard.jsx
 // for how a missing mission is presented, and TransactionFeed.jsx for how
 // a family member asks for a one-time exception instead.

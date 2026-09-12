@@ -19,7 +19,7 @@ without touching anything downstream of `transactions.py`.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import init_db
-from .routers import users, missions, transactions, audit, trust, continuity, scenarios, exceptions
+from .routers import users, missions, transactions, audit, trust, continuity, scenarios, exceptions, intent
 
 app = FastAPI(title="Money Companion API", version="0.1.0")
 
@@ -38,6 +38,7 @@ app.include_router(trust.router)
 app.include_router(continuity.router)
 app.include_router(scenarios.router)
 app.include_router(exceptions.router)
+app.include_router(intent.router)
 
 
 @app.on_event("startup")

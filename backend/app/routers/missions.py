@@ -34,6 +34,69 @@ def _user_baselines(cur, user_id: str) -> dict:
     return build_all_baselines([dict(r) for r in rows])
 
 
+def create_mission(cur, owner_id: str, delegate_id: str, purpose: str, days: int,
+                    monthly_limit: float, per_transaction_limit: float | None,
+                    allowed_categories: list[str], source_text: str | None) -> str:
+    """
+    Shared by POST /api/missions (direct confirm) and the Intent Engine's
+    CREATE_MISSION execution (routers/intent.py) -- there is exactly one
+    code path that writes a new mission, no matter which UI triggered it.
+    Caller is responsible for commit (pass a db_cursor(commit=True) cursor).
+    """
+    mission_id = str(uuid.uuid4())
+    start = datetime.utcnow()
+    end = start + timedelta(days=days)
+    cur.execute(
+        "INSERT INTO missions (id, owner_id, delegate_id, purpose, start_date, end_date, "
+        "monthly_limit, per_transaction_limit, allowed_categories, status, source_text) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            mission_id, owner_id, delegate_id, purpose, start.isoformat(), end.isoformat(),
+            monthly_limit, per_transaction_limit, json.dumps(allowed_categories), "active", source_text,
+        ),
+    )
+    for category in allowed_categories:
+        cur.execute(
+            "INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,1)",
+            (str(uuid.uuid4()), mission_id, category),
+        )
+    for action in NON_DELEGABLE_ACTIONS:
+        cur.execute(
+            "INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,0)",
+            (str(uuid.uuid4()), mission_id, action),
+        )
+    return mission_id
+
+
+def set_allowed_categories(cur, mission_id: str, allowed_categories: list[str]):
+    """Used by GRANT_PERMISSION / REVOKE_PERMISSION to add or remove a single
+    category from an existing mission, keeping `missions.allowed_categories`
+    (what the Decision Engine actually reads) and the `permissions` audit
+    rows in sync."""
+    cur.execute("UPDATE missions SET allowed_categories = ? WHERE id = ?", (json.dumps(allowed_categories), mission_id))
+    cur.execute("DELETE FROM permissions WHERE mission_id = ?", (mission_id,))
+    for category in allowed_categories:
+        cur.execute("INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,1)",
+                     (str(uuid.uuid4()), mission_id, category))
+    for action in NON_DELEGABLE_ACTIONS:
+        cur.execute("INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,0)",
+                     (str(uuid.uuid4()), mission_id, action))
+
+
+def set_mission_limits(cur, mission_id: str, monthly_limit: float | None = None, per_transaction_limit: float | None = "__unset__"):
+    """MODIFY_LIMIT. per_transaction_limit uses a sentinel so callers can
+    distinguish "leave unchanged" from "explicitly clear it"."""
+    if monthly_limit is not None:
+        cur.execute("UPDATE missions SET monthly_limit = ? WHERE id = ?", (monthly_limit, mission_id))
+    if per_transaction_limit != "__unset__":
+        cur.execute("UPDATE missions SET per_transaction_limit = ? WHERE id = ?", (per_transaction_limit, mission_id))
+
+
+def set_mission_duration(cur, mission_id: str, new_end_date_iso: str):
+    """MODIFY_DURATION."""
+    cur.execute("UPDATE missions SET end_date = ? WHERE id = ?", (new_end_date_iso, mission_id))
+
+
 @router.post("/compile")
 def compile_mission_endpoint(body: MissionCompileRequest):
     with db_cursor() as cur:
@@ -79,31 +142,11 @@ def confirm_mission(body: MissionConfirmRequest):
         if not delegate:
             raise HTTPException(404, f"No se encontró a {body.delegate_name} en la red de confianza")
 
-    mission_id = str(uuid.uuid4())
-    start = datetime.utcnow()
-    end = start + timedelta(days=body.days)
-
     with db_cursor(commit=True) as cur:
-        cur.execute(
-            "INSERT INTO missions (id, owner_id, delegate_id, purpose, start_date, end_date, "
-            "monthly_limit, per_transaction_limit, allowed_categories, status, source_text) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                mission_id, body.owner_id, delegate["id"], body.purpose,
-                start.isoformat(), end.isoformat(), body.monthly_limit, body.per_transaction_limit,
-                json.dumps(body.allowed_categories), "active", body.source_text,
-            ),
+        mission_id = create_mission(
+            cur, body.owner_id, delegate["id"], body.purpose, body.days,
+            body.monthly_limit, body.per_transaction_limit, body.allowed_categories, body.source_text,
         )
-        for category in body.allowed_categories:
-            cur.execute(
-                "INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,1)",
-                (str(uuid.uuid4()), mission_id, category),
-            )
-        for action in NON_DELEGABLE_ACTIONS:
-            cur.execute(
-                "INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,0)",
-                (str(uuid.uuid4()), mission_id, action),
-            )
 
     return {"id": mission_id, "status": "active"}
 

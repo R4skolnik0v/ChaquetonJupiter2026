@@ -17,10 +17,18 @@ router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 @router.get("")
 def get_audit_trail(user_id: str):
+    """
+    LEFT JOIN on purpose: an audit_log row from a transaction decision has a
+    transaction_id and picks up merchant/category/amount from it, but a row
+    from the Intent Engine (revoking a permission, adding someone to the
+    trust network, configuring continuity...) has transaction_id = NULL --
+    an INNER JOIN would silently drop every one of those rows. `kind` tells
+    the frontend which of the two it's looking at.
+    """
     with db_cursor() as cur:
         rows = cur.execute(
-            "SELECT a.id, a.action, a.reasons, a.timestamp, t.merchant, t.category, t.amount "
-            "FROM audit_log a JOIN transactions t ON t.id = a.transaction_id "
+            "SELECT a.id, a.action, a.reasons, a.timestamp, a.transaction_id, t.merchant, t.category, t.amount "
+            "FROM audit_log a LEFT JOIN transactions t ON t.id = a.transaction_id "
             "WHERE a.user_id = ? ORDER BY a.timestamp DESC",
             (user_id,),
         ).fetchall()
@@ -28,6 +36,7 @@ def get_audit_trail(user_id: str):
     for r in rows:
         d = dict(r)
         d["reasons"] = json.loads(d["reasons"])
+        d["kind"] = "transaction" if d["transaction_id"] else "account_change"
         out.append(d)
     return out
 

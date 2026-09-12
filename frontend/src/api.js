@@ -138,6 +138,12 @@ export const api = {
       () => localApi.addTrustMember(payload)
     ),
 
+  removeTrustedPerson: (userId, trustId) =>
+    withFallback(
+      () => request(`/trust-network/${trustId}?user_id=${userId}`, { method: "DELETE" }),
+      () => localApi.removeTrustedPerson(userId, trustId)
+    ),
+
   getContinuity: (userId) =>
     withFallback(
       () => request(`/continuity/${userId}`),
@@ -179,6 +185,21 @@ export const api = {
     withFallback(
       () => request(`/exceptions/${requestId}/resolve`, { method: "POST", body: JSON.stringify({ decision, resolved_by: resolvedBy }) }),
       () => localApi.resolveException(requestId, { decision, resolved_by: resolvedBy })
+    ),
+
+  // ---- Intent Engine: the elder's natural-language box for everything
+  // beyond the first mission -- interpret returns a proposal, nothing is
+  // written until execute is called with the (possibly edited) proposal. ----
+  interpretIntent: (userId, text) =>
+    withFallback(
+      () => request(`/intent/interpret`, { method: "POST", body: JSON.stringify({ user_id: userId, text }) }),
+      () => localApi.interpretIntent(userId, text)
+    ),
+
+  executeIntent: (userId, intent, proposal) =>
+    withFallback(
+      () => request(`/intent/execute`, { method: "POST", body: JSON.stringify({ user_id: userId, intent, proposal }) }),
+      () => localApi.executeIntent(userId, intent, proposal)
     ),
 
   // Only resets the in-browser fallback stores (all of them). To reset the

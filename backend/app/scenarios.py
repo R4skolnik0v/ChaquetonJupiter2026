@@ -59,7 +59,7 @@ SCENARIOS = [
         "tagline": "Delegación segura de tareas",
         "headline": "María necesita ayuda con sus servicios mientras se recupera de una cirugía.",
         "delegate": {"name": "Laura", "relationship": "hija"},
-        "backup": {"name": "Carlos", "relationship": "sobrino"},
+        "backup": {"name": "Carlos", "relationship": "hijo"},
         "mission": {
             "purpose": "Ayudar con gastos esenciales mientras María se recupera",
             "days": 30,

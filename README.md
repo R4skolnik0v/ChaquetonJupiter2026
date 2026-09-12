@@ -61,60 +61,92 @@ la aprueba, la bloquea, o la manda a revisión — explicando siempre por qué.
 Una sola columna, tipografía grande, máximo 3–5 acciones por pantalla, cero
 jerga ("Risk Score", "APR", "Cash Flow" no existen aquí). Pantallas:
 Inicio, Mis movimientos, Próximos pagos, Explícame mis gastos (narra la
-diferencia entre meses en lugar de mostrar una gráfica), Ayuda (quién puede
-apoyarlo), **Pedir ayuda** (el Mission Compiler, ver sección 5) y
-**Solicitudes de tu familia** (aprobar o rechazar excepciones, sección 6).
+diferencia entre meses en lugar de mostrar una gráfica), **Personas que me
+ayudan** (la red de confianza — agregar y quitar personas es decisión del
+adulto mayor, sección 5), **Mi continuidad** (configurar/activar/desactivar
+el plan de continuidad, también solo el adulto mayor), **¿Quieres cambiar
+algo?** (la caja de texto del Intent Engine — mission compiler, revocar
+permisos, todo, ver sección 5), y **Solicitudes de tu familia** (aprobar o
+rechazar excepciones, sección 6).
 
 ### Modo Familiar / Ayudante (👩)
-Panel operativo: la misión que el adulto mayor ya autorizó (con su barra de
-límite y permisos — de solo lectura, el familiar no la puede editar), un
-simulador de transacciones para ver el motor de decisiones en vivo, sus
-solicitudes de excepción, la bitácora de auditoría completa, la red de
-confianza, y el panel de Continuidad Financiera.
+Panel de solo lectura sobre lo que el adulto mayor ya autorizó: la misión
+activa (con su barra de límite y permisos), un simulador de transacciones
+para ver el motor de decisiones en vivo, sus solicitudes de excepción, la
+bitácora de auditoría completa, la red de confianza y el estado de
+Continuidad. Nada de esto se puede crear ni editar desde este lado — ni
+una misión, ni una persona de confianza, ni el plan de continuidad.
 
 Ambos modos leen y escriben la misma base de datos — no son dos apps
 separadas, son dos vistas de la misma cuenta.
 
-## 5. El Mission Compiler vive en el Modo Adulto Mayor
+## 5. El Intent Engine: una sola caja de texto para todo
 
 Este es el cambio conceptual más importante del proyecto: **la intención
-de la misión tiene que venir de quien es dueño del dinero, nunca de quien
-va a ayudar**. El familiar jamás decide sus propios permisos.
+siempre viene de quien es dueño del dinero, nunca de quien va a ayudar**.
+El familiar jamás decide sus propios permisos, ni los agrega, ni los quita.
 
-Flujo (`components/elder/ElderRequestHelp.jsx`, banner "¿Necesitas ayuda
-con tu dinero?" en la pantalla de Inicio):
+En vez de una pantalla distinta por cada acción posible (crear misión,
+revocar un permiso, agregar a alguien, configurar continuidad...), el
+adulto mayor tiene UNA sola caja: "¿Quieres cambiar algo?"
+(`components/elder/ElderIntentBox.jsx`). El Intent Engine
+(`backend/app/engines/intent_engine.py`) clasifica el texto en uno de 12
+intents y propone una acción estructurada:
 
 ```
-ADULTO MAYOR describe la ayuda en lenguaje natural
-        ↓
-MISSION COMPILER interpreta la intención (backend/app/engines/mission_compiler.py)
-        ↓
-Propone: ayudante, propósito, duración, límite, categorías permitidas
-        ↓
-ADULTO MAYOR revisa (puede editar cada campo) y CONFIRMA
-        ↓
-Se crea la misión — el familiar la ve, ya autorizada, en su propio modo
-        ↓
-El familiar ejecuta tareas dentro de lo autorizado
-        ↓
-Permission Engine + Risk Engine evalúan cada transacción
+CREATE_MISSION · MODIFY_MISSION · REVOKE_PERMISSION · GRANT_PERMISSION
+MODIFY_LIMIT · MODIFY_DURATION · ADD_TRUSTED_PERSON · REMOVE_TRUSTED_PERSON
+ENABLE_CONTINUITY · MODIFY_CONTINUITY · DISABLE_CONTINUITY
+GENERAL_FINANCIAL_QUESTION
 ```
 
-Una misión es una fila en la base de datos con:
+Flujo, siempre el mismo sin importar el intent:
+
+```
+ADULTO MAYOR describe lo que quiere en lenguaje natural
+        ↓
+INTENT ENGINE clasifica la intención y arma una propuesta
+        ↓
+Muestra "Esto es lo que entendí" -- nunca ejecuta todavía
+        ↓
+ADULTO MAYOR revisa (puede editar los campos clave) y CONFIRMA
+        ↓
+Solo AHORA se escribe en la base de datos (POST /api/intent/execute)
+        ↓
+El familiar ve el resultado ya autorizado, en su propio modo (solo lectura)
+        ↓
+Permission Engine + Risk Engine evalúan cada transacción como siempre
+```
+
+Ejemplo real (probado, no hipotético): María escribe *"Ya no quiero que mi
+hijo pueda hacer transferencias"* → el motor identifica REVOKE_PERMISSION
+sobre Carlos y responde *"Entendí que quieres quitarle a Carlos el permiso
+para 'Transferencia'. Buena noticia: eso nunca estuvo permitido para
+nadie..."* -- porque las transferencias son una regla dura, ninguna misión
+puede otorgarlas, con o sin Intent Engine de por medio.
+
+Los casos donde crear una misión sigue siendo el resultado correcto
+reutilizan el **Mission Compiler** original
+(`backend/app/engines/mission_compiler.py`) sin duplicar su lógica de
+categorías/duración/límite -- el Intent Engine solo decide *cuándo*
+llamarlo.
+
+Una misión sigue siendo una fila en la base de datos con:
 
 - **delegate**: quién ayuda (debe estar en la red de confianza)
-- **allowed_categories**: en qué puede gastar (ej. CFE, Agua, Farmacia)
-- **monthly_limit**: cuánto, como máximo, por mes
-- **per_transaction_limit** *(opcional)*: un tope por pago individual — ej.
-  "hasta $500 por recibo de CFE" (usado por los escenarios de Roberto y
-  Patricia; el Compiler no lo sugiere todavía, solo el límite mensual)
+- **allowed_categories**: en qué puede gastar (ej. CFE, Agua, Farmacia) --
+  esto es exactamente lo que REVOKE_PERMISSION/GRANT_PERMISSION modifican
+- **monthly_limit** / **per_transaction_limit** *(opcional)*: MODIFY_LIMIT
+  cambia cualquiera de los dos
 - **forbidden actions**: siempre incluye transferencias, retiros, cambios
-  de beneficiario y de titularidad, préstamos — sin excepción
-- **start_date / end_date**: la misión expira sola (el Decision Engine
-  revisa esto en cada transacción, no solo al crearla)
+  de beneficiario y de titularidad, préstamos -- ninguna de las 12 intents
+  puede tocar esta lista, ni siquiera como "excepción" (ver `routers/
+  exceptions.py`, que la vuelve a comprobar de forma independiente)
+- **start_date / end_date**: MODIFY_DURATION cambia esto; el Decision
+  Engine también lo revisa en cada transacción, no solo al crear la misión
 
-Nada de esto se guarda hasta que el adulto mayor presiona "Confirmar
-misión" — el compilador **propone**, nunca autoriza.
+Nada de esto se guarda hasta que el adulto mayor presiona "Sí, hacer este
+cambio" -- el Intent Engine **propone**, nunca autoriza.
 
 ## 6. Excepciones: el familiar pide, el adulto mayor decide
 
@@ -122,8 +154,9 @@ Cuando una transacción se bloquea *únicamente* por exceder un límite de
 gasto (mensual o por transacción — nunca por una acción no delegable como
 una transferencia), la familia puede pedir una excepción de una sola vez.
 El Decision Engine marca esto como `exception_eligible` (ver
-`decision_engine.py`); solo entonces aparece el botón "Solicitar
-excepción" en la bitácora del familiar.
+`decision_engine.py`, y persistido en `transactions.exception_eligible`);
+solo entonces aparece el botón "Solicitar excepción" en la bitácora del
+familiar.
 
 ```
 Familiar intenta CFE $742 (límite: $500 por transacción)
@@ -227,9 +260,15 @@ persistido, ver limitaciones), `alerts`, `approvals`, `audit_log`,
 `continuity_rules`, `exception_requests`. El esquema completo con
 comentarios está en `backend/app/database.py`.
 
+El Intent Engine no tiene tabla propia: cada acción que ejecuta escribe una
+fila más en `audit_log`, con `transaction_id = NULL` (porque no fue una
+transacción). `GET /api/audit` usa un LEFT JOIN con `transactions` para no
+perder esas filas -- un INNER JOIN las habría descartado en silencio; ese
+fue justo uno de los bugs que corrigió esta versión.
+
 ## 11. Cómo ejecutar el proyecto
 
-Exactamente igual que antes — nada de esto cambió con la v2.
+Exactamente igual que en la v1 y la v2 — nada de esto cambió.
 
 **Backend** (Python 3.10+, conexión a internet la primera vez):
 
@@ -263,50 +302,70 @@ dashboard indica cuándo está usando este modo de respaldo.
 3. Haz clic en cualquier fila de la bitácora para expandir el "¿Por qué?".
 4. Cambia a **"Soy [nombre]"** (botón "Cambiar de modo") para ver la otra
    mitad de la historia, contada de forma simple.
-5. En Modo Adulto Mayor, prueba **"¿Necesitas ayuda con tu dinero?"** para
-   ver el Mission Compiler crear una misión nueva desde cero.
-6. Para el escenario de Roberto o Patricia: dispara una transacción que
-   exceda el límite por transacción, luego cambia a Modo Familiar y
-   presiona "Solicitar excepción" — luego regresa a Modo Adulto Mayor para
+5. En Modo Adulto Mayor, prueba **"¿Quieres cambiar algo?"** -- este es el
+   guion que más vale la pena mostrar en el hackathon:
+   - Escribe *"Ya no quiero que mi hijo pueda hacer transferencias"* (con
+     María, cuyo hijo es Carlos) → el Intent Engine identifica
+     REVOKE_PERMISSION y explica que eso ya estaba bloqueado por regla dura.
+   - Escribe *"Quiero que Laura me ayude con mis servicios este mes"* →
+     propone (o actualiza, si Laura ya tiene una misión) una misión
+     estructurada; confirma y ve a Modo Familiar para ver a Laura con esos
+     permisos ya autorizados.
+   - Escribe *"Quiero agregar a mi sobrina Fernanda para que me ayude con
+     el supermercado"* (usa un nombre que no exista ya en el escenario) →
+     ADD_TRUSTED_PERSON.
+6. Ve a **"Personas que me ayudan"** para ver/quitar a alguien de la red de
+   confianza directamente (sin pasar por texto libre).
+7. Ve a **"Mi continuidad"** para configurar, activar o desactivar el plan
+   de continuidad -- en Elena, ya viene configurado (no activado); pruébalo
+   ahí primero.
+8. Para el escenario de Roberto o Patricia: dispara una transacción que
+   exceda el límite por transacción, cambia a Modo Familiar y presiona
+   "Solicitar excepción" -- luego regresa a Modo Adulto Mayor para
    aprobarla o rechazarla desde "Solicitudes de tu familia".
-7. Para Elena: activa Continuidad en vivo desde el Modo Familiar.
-8. Usa **"Reiniciar escenario"** (en el menú de cualquiera de los dos
+9. Usa **"Reiniciar escenario"** (en el menú de cualquiera de los dos
    modos) para regresar ese escenario a su estado inicial sin recargar la
    página ni reiniciar el backend. **"Cambiar demo"** regresa a la
    cuadrícula de escenarios; **"Inicio"** regresa a la pantalla de entrada.
-9. Prueba **"Empezar desde cero"** desde la pantalla de inicio para armar
-   una misión con tus propios nombres, en un espacio completamente aislado
-   de los 5 escenarios.
+10. Prueba **"Empezar desde cero"** desde la pantalla de inicio para armar
+    una misión con tus propios nombres, en un espacio completamente
+    aislado de los 5 escenarios.
 
 ## 13. Qué parte utiliza IA / ML
 
-Solo el **Mission Compiler**, y de forma deliberadamente limitada: es
-interpretación de intención por palabras clave (sin llamadas a un LLM, para
-que la demo no dependa de internet ni de una API key). Su única salida es
-un *borrador* editable que el adulto mayor revisa y confirma — nunca
-escribe permisos directamente. En producción, este paso se sustituiría por
-un LLM con más comprensión de lenguaje natural, pero el diseño no cambia:
-seguiría sin tener autoridad para aprobar nada por sí mismo.
+El **Intent Engine** (`backend/app/engines/intent_engine.py`) y el
+**Mission Compiler** que reutiliza (`mission_compiler.py`), y de forma
+deliberadamente limitada: es clasificación e interpretación de intención
+por palabras clave y patrones, sin llamadas a un LLM (para que la demo no
+dependa de internet ni de una API key). Su única salida es una *propuesta*
+editable que el adulto mayor revisa y confirma — nunca escribe permisos,
+misiones, personas de confianza ni reglas de continuidad directamente. En
+producción, este paso se sustituiría por un LLM con más comprensión de
+lenguaje natural (y mejor extracción de nombres propios, hoy el punto más
+frágil — ver Limitaciones), pero el diseño no cambia: seguiría sin tener
+autoridad para ejecutar nada por sí mismo.
 
 ## 14. Qué parte utiliza reglas deterministas
 
 Todo lo demás: qué categorías están permitidas, el límite mensual y por
 transacción, la vigencia de la misión, y sobre todo, la lista de acciones
-que **nunca** se pueden delegar — ni siquiera por excepción (transferencias,
+que **nunca** se pueden delegar — ni siquiera por excepción, ni siquiera si
+el Intent Engine "entiende" una petición para hacerlo (transferencias,
 retiros, cambios de beneficiario/titularidad, préstamos). Esa lista vive
-como código en `decision_engine.py` y se vuelve a aplicar en
-`routers/exceptions.py`, no como configuración editable desde la UI — es la
-garantía central del producto.
+como código en `decision_engine.py` y se vuelve a comprobar de forma
+independiente en `routers/exceptions.py` y en cada rama de
+`routers/intent.py` que toca permisos — ninguna de las 12 intents puede
+tocarla, es la garantía central del producto.
 
 ## 15. Por qué nuestra solución es diferente
 
 No es una app de presupuesto, ni un chatbot financiero, ni un detector de
 fraude genérico, ni "banca familiar" con acceso compartido. Es un sistema
 de **delegación controlada**: el adulto mayor conserva la cuenta, decide
-qué se delega, y puede ver exactamente qué pasó y por qué en cualquier
-momento. La familia obtiene herramientas reales para ayudar sin heredar
-control total ni responsabilidad ilimitada — y cuando necesita más de lo
-autorizado, tiene que pedirlo, no tomarlo.
+qué se delega, puede revocarlo con una frase, y puede ver exactamente qué
+pasó y por qué en cualquier momento. La familia obtiene herramientas reales
+para ayudar sin heredar control total ni responsabilidad ilimitada — y
+cuando necesita más de lo autorizado, tiene que pedirlo, no tomarlo.
 
 ## 16. Limitaciones del prototipo
 
@@ -316,15 +375,31 @@ autorizado, tiene que pedirlo, no tomarlo.
 - Los perfiles de comportamiento (`behavior_profiles`) se calculan al vuelo
   desde el historial de transacciones en cada request, en lugar de
   guardarse y actualizarse de forma incremental.
-- El Mission Compiler es reglas por palabra clave, no un modelo de lenguaje
-  real, y todavía no sugiere un límite por transacción (solo mensual) —
-  los escenarios de Roberto y Patricia lo traen precargado como dato.
-- No hay autenticación real: cualquiera que abra la app puede entrar a
-  cualquier escenario o crear uno nuevo.
+- El Mission Compiler y el Intent Engine son reglas por palabra clave, no
+  un modelo de lenguaje real. El punto más frágil es la extracción de
+  nombres propios para ADD_TRUSTED_PERSON (`_extract_capitalized_name`):
+  toma la primera palabra con mayúscula que no sea ya una persona conocida.
+  Funciona bien con "Quiero agregar a mi sobrina **Fernanda**...", pero
+  puede fallar con frases atípicas — una razón más por la que el paso de
+  confirmación siempre muestra el nombre detectado antes de guardar nada.
+- El Intent Engine prioriza patrones de negación ("ya no quiero que...")
+  sobre los de autorización cuando ambos aparecen en la misma frase (son
+  substrings el uno del otro en español); esto cubre los casos probados
+  pero no es NLU real — frases suficientemente raras pueden clasificarse
+  distinto de lo esperado. Como siempre, nada se ejecuta sin que el adulto
+  mayor vea y confirme la interpretación primero.
+- Sin autenticación ni control de acceso real: la separación "el familiar
+  no puede hacer X" es una decisión de qué muestra la interfaz, no una
+  regla que el backend haga cumplir por rol — cualquiera que llame a la
+  API directamente podría, por ejemplo, activar Continuidad. Igual que la
+  ausencia general de login, es una simplificación consciente para el
+  prototipo.
 - El motor de respaldo del frontend (`localEngine.js`) duplica a mano la
-  lógica de Python, incluyendo los 5 escenarios; en producción esa
-  duplicación no debería existir — es una decisión explícita solo para
-  blindar la demo ante fallas de red.
+  lógica de Python, incluyendo los 5 escenarios y el Intent Engine
+  completo; en producción esa duplicación no debería existir — es una
+  decisión explícita solo para blindar la demo ante fallas de red. Los dos
+  se probaron por separado y producen las mismas decisiones para los casos
+  de la sección 12, pero pueden divergir en frases no probadas.
 - "Reiniciar escenario" reinicia los 5 escenarios de demo a su estado
   original; un escenario de "empezar desde cero" no se puede reiniciar
   (no tiene un estado original al que volver) — simplemente se abandona y
@@ -335,12 +410,15 @@ autorizado, tiene que pedirlo, no tomarlo.
 - Sustituir el mock de Nessie por la API real y mover `behavior_profiles` a
   una tabla que se actualiza de forma incremental (o a un job de ML real
   con pandas/scikit-learn, como sugiere el brief original).
-- Reemplazar el Mission Compiler por un LLM con function calling, sin tocar
-  el Decision Engine ni el flujo de confirmación del adulto mayor.
-- Añadir autenticación real y multi-cuenta (hoy el "login" es solo elegir
-  un escenario).
+- Reemplazar el Intent Engine y el Mission Compiler por un LLM con function
+  calling, sin tocar el Decision Engine ni el flujo de confirmación del
+  adulto mayor -- la interfaz entre "interpretar" y "ejecutar" ya está
+  separada exactamente para permitir este cambio sin tocar nada más.
+- Añadir autenticación real, control de acceso por rol (para que "el
+  familiar no puede activar continuidad" sea una regla del backend, no
+  solo de la interfaz), y multi-cuenta.
 - Notificaciones push/SMS cuando una transacción cae en `REVIEW`/`BLOCKED`,
-  o cuando hay una solicitud de excepción pendiente.
+  o cuando hay una solicitud de excepción o un cambio de permisos pendiente.
 - Mover SQLite a Postgres y el esquema plano a migraciones versionadas.
 
 ## CHANGELOG (v1 → v2)
@@ -349,8 +427,8 @@ autorizado, tiene que pedirlo, no tomarlo.
   precargados (María, Carlos, Elena, Roberto, Patricia) definidos como
   datos en `scenarios.py`, no como código por persona.
 - El Mission Compiler se movió del Modo Familiar al Modo Adulto Mayor
-  (`ElderRequestHelp.jsx`) — el familiar ya no puede crear ni editar su
-  propia misión.
+  (más tarde ampliado al Intent Engine general, ver v3) — el familiar ya
+  no puede crear ni editar su propia misión.
 - Nuevo flujo de excepciones: el familiar pide, el adulto mayor aprueba o
   rechaza (`exceptions.py`, `ElderApprovals.jsx`).
 - Nuevo `per_transaction_limit` en las misiones (tope por pago individual,
@@ -359,3 +437,46 @@ autorizado, tiene que pedirlo, no tomarlo.
   detecta patrones de escalamiento, además de anomalías y boundary-seeking.
 - "Cambiar demo" / "Reiniciar escenario" / "Inicio" en ambos modos — nunca
   hace falta reiniciar el backend para cambiar de escenario.
+
+## CHANGELOG (v2 → v3)
+
+- **Corregido**: el panel de Continuidad del familiar se quedaba en
+  "Cargando…" para siempre en cualquier escenario sin un plan configurado
+  (Carlos, Roberto, Patricia). Causa: el frontend usaba `null` tanto para
+  "todavía no cargó" como para "ya cargó y no hay nada" y no podía
+  distinguirlos. `GET /api/continuity/{user_id}` ahora también devuelve un
+  `status` calculado (`no_configurado` / `configurado` / `activo` /
+  `expirado`).
+- **Corregido**: `GET /api/audit` usaba un INNER JOIN con `transactions`,
+  así que cualquier fila de auditoría sin transacción asociada (todo lo que
+  ahora escribe el Intent Engine) desaparecía en silencio. Ahora es un LEFT
+  JOIN, con un campo `kind` (`transaction` | `account_change`) para que el
+  frontend sepa cómo mostrar cada fila.
+- **Nuevo: Intent Engine** (`backend/app/engines/intent_engine.py` +
+  `routers/intent.py`, con gemelo en `frontend/src/data/localEngine.js`) --
+  clasifica lenguaje natural en 12 intents (CREATE_MISSION,
+  MODIFY_MISSION, REVOKE_PERMISSION, GRANT_PERMISSION, MODIFY_LIMIT,
+  MODIFY_DURATION, ADD_TRUSTED_PERSON, REMOVE_TRUSTED_PERSON,
+  ENABLE_CONTINUITY, MODIFY_CONTINUITY, DISABLE_CONTINUITY,
+  GENERAL_FINANCIAL_QUESTION) y siempre exige confirmación antes de
+  ejecutar. Reutiliza el Mission Compiler existente para los casos de
+  misión, sin duplicar su lógica de categorías/duración/límite.
+- La caja "¿Necesitas ayuda con tu dinero?" del Modo Adulto Mayor se
+  convirtió en "¿Quieres cambiar algo?" (`ElderIntentBox.jsx`) -- una sola
+  entrada para todo, en vez de una pantalla por acción.
+- **Nuevo**: `DELETE /api/trust-network/{id}` -- quitar a alguien de la red
+  de confianza también termina, de inmediato, cualquier misión activa que
+  tuviera.
+- La Red de Confianza y la Continuidad se movieron por completo al control
+  del adulto mayor: nuevas pantallas `ElderPeople.jsx` (agregar/quitar) y
+  `ElderContinuity.jsx` (configurar/activar/desactivar). El lado familiar
+  (`TrustNetwork.jsx`, `ContinuityPanel.jsx`) ahora es de solo lectura --
+  ya no tiene botones para agregarse permisos ni activar nada.
+- Corregido de paso: `activate_continuity` no estaba escribiendo las filas
+  de `permissions` para las acciones no delegables en la misión que crea,
+  así que esa misión mostraba "No permitido: (nada)" aunque el Decision
+  Engine sí la bloqueaba correctamente por otra vía. Ahora usa el mismo
+  `create_mission()` que todo lo demás.
+- A Carlos (backup de María) se le cambió la relación de "sobrino" a
+  "hijo" para que el ejemplo de revocación del brief funcione tal cual con
+  el escenario precargado.
