@@ -4,6 +4,7 @@ import FamilyDashboard from "./FamilyDashboard.jsx";
 import TrustNetwork from "./TrustNetwork.jsx";
 import ContinuityPanel from "./ContinuityPanel.jsx";
 import AuditTrail from "./AuditTrail.jsx";
+import BrandLogo from "../BrandLogo.jsx";
 
 // NOTE: there is deliberately no "Nueva misión" / Mission Compiler tab here.
 // The family member receives permissions that the account owner already
@@ -49,6 +50,9 @@ export default function FamilyApp({ userId, scenarioMeta, onSwitchMode, onChange
         )}
       </aside>
       <main className="family-main">
+        <header className="family-brand">
+          <BrandLogo />
+        </header>
         {tab === "dashboard" && <FamilyDashboard userId={userId} scenarioMeta={scenarioMeta} />}
         {tab === "trust" && <TrustNetwork userId={userId} />}
         {tab === "continuity" && <ContinuityPanel userId={userId} />}
