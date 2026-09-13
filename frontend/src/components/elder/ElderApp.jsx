@@ -6,9 +6,11 @@ import ElderMovements from "./ElderMovements.jsx";
 import ElderUpcoming from "./ElderUpcoming.jsx";
 import ElderExplain from "./ElderExplain.jsx";
 import ElderPeople from "./ElderPeople.jsx";
+import ElderEditPermissions from "./ElderEditPermissions.jsx";
 import ElderContinuity from "./ElderContinuity.jsx";
 import ElderIntentBox from "./ElderIntentBox.jsx";
 import ElderApprovals from "./ElderApprovals.jsx";
+import ElderTransfer from "./ElderTransfer.jsx";
 
 const TITLES = {
   home: null,
@@ -19,6 +21,7 @@ const TITLES = {
   continuity: "Continuidad",
   change: "¿Quieres cambiar algo?",
   approvals: "Solicitudes de tu familia",
+  transfer: "Transferir dinero",
 };
 
 // This is the most important screen switch in the whole product: the
@@ -30,6 +33,7 @@ export default function ElderApp({ userId, scenarioMeta, onSwitchMode, onChangeD
   const [screen, setScreen] = useState("home");
   const [pendingCount, setPendingCount] = useState(0);
   const [intentBoxText, setIntentBoxText] = useState("");
+  const [permissionsModal, setPermissionsModal] = useState(null);
 
   async function refreshPending() {
     try {
@@ -43,6 +47,19 @@ export default function ElderApp({ userId, scenarioMeta, onSwitchMode, onChangeD
   useEffect(() => {
     refreshPending();
   }, [userId, screen]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      const detail = e.detail || {};
+      setPermissionsModal(detail);
+    };
+    window.addEventListener("showPermissionsModal", handler);
+    window.addEventListener("openEditPermissions", handler);
+    return () => {
+      window.removeEventListener("showPermissionsModal", handler);
+      window.removeEventListener("openEditPermissions", handler);
+    };
+  }, []);
 
   function openIntentBox(prefill = "") {
     setIntentBoxText(prefill);
@@ -78,11 +95,21 @@ export default function ElderApp({ userId, scenarioMeta, onSwitchMode, onChangeD
         {screen === "explain" && <ElderExplain userId={userId} />}
         {screen === "people" && <ElderPeople userId={userId} onAdd={() => openIntentBox("Quiero agregar a ")} />}
         {screen === "continuity" && <ElderContinuity userId={userId} onOpenIntentBox={openIntentBox} />}
+        {screen === "transfer" && <ElderTransfer userId={userId} onDone={() => setScreen("home")} onAdd={() => openIntentBox("Quiero agregar a ")} />}
         {screen === "change" && (
           <ElderIntentBox userId={userId} initialText={intentBoxText} onDone={() => setScreen("home")} />
         )}
         {screen === "approvals" && (
           <ElderApprovals userId={userId} onResolved={refreshPending} />
+        )}
+        <div id="elder-permissions-container" style={{ marginTop: 18 }} />
+        {permissionsModal && (
+          <div className="permissions-modal" style={{ position: "fixed", left: 0, right: 0, top: 0, bottom: 0, background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: "white", borderRadius: 8, width: 700, maxWidth: "95%", maxHeight: "85%", overflow: "auto", padding: 18 }}>
+              <button onClick={() => setPermissionsModal(null)} style={{ float: "right" }}>Cerrar</button>
+              <ElderEditPermissions ownerId={permissionsModal.ownerId} personName={permissionsModal.personName} missionId={permissionsModal.missionId} onClose={() => setPermissionsModal(null)} />
+            </div>
+          </div>
         )}
       </div>
     </div>

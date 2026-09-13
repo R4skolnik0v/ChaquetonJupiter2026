@@ -59,9 +59,9 @@ class MissionDraft:
     days: int
     allowed_categories: list[str]
     suggested_limit: float
-    forbidden_actions: list[str] = field(default_factory=lambda: [
-        "Transferencia", "Retiro", "Cambio de beneficiario", "Cambio de titularidad", "Préstamo",
-    ])
+    # No global forbidden actions by default; the account owner decides
+    # which specific actions (if any) should be disallowed for a mission.
+    forbidden_actions: list[str] = field(default_factory=list)
     matched_keywords: list[str] = field(default_factory=list)
 
 

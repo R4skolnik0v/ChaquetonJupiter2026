@@ -43,6 +43,7 @@ class ExecuteRequest(BaseModel):
     user_id: str
     intent: str
     proposal: dict
+    confirmed: bool | None = None
 
 
 def _build_context(cur, user_id: str) -> dict:
@@ -107,6 +108,10 @@ def execute(body: ExecuteRequest):
     user_id = body.user_id
     result = {}
 
+    # Require explicit confirmation for intents that change state.
+    if intent != "GENERAL_FINANCIAL_QUESTION" and not body.confirmed:
+        raise HTTPException(400, "Confirmation required to execute this intent")
+
     with db_cursor(commit=True) as cur:
         owner = cur.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if not owner:
@@ -131,7 +136,14 @@ def execute(body: ExecuteRequest):
             if p.get("already_blocked"):
                 _audit(cur, user_id, intent, f"Se confirmó que '{p['category']}' sigue sin estar permitido para {p['delegate_name']}.")
             else:
-                set_allowed_categories(cur, p["mission_id"], p["remaining_categories"])
+                # If the target is a category (present in remaining_categories), update categories.
+                if p.get("remaining_categories") is not None:
+                    set_allowed_categories(cur, p["mission_id"], p["remaining_categories"])
+                else:
+                    # Action-level revoke: set the permission row for this action to allowed=0
+                    cur.execute("DELETE FROM permissions WHERE mission_id = ? AND action = ?", (p["mission_id"], p["category"]))
+                    cur.execute("INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,0)",
+                                (str(uuid.uuid4()), p["mission_id"], p["category"],))
                 _audit(cur, user_id, intent, f"Se le quitó a {p['delegate_name']} el permiso para '{p['category']}'.")
 
         elif intent == "GRANT_PERMISSION":
@@ -139,7 +151,14 @@ def execute(body: ExecuteRequest):
                 why = "ya estaba permitido" if p.get("already_allowed") else "está bloqueado permanentemente"
                 _audit(cur, user_id, intent, f"Sin cambios: '{p['category']}' {why} para {p['delegate_name']}.")
             else:
-                set_allowed_categories(cur, p["mission_id"], p["new_categories"])
+                # If new_categories present, update allowed categories.
+                if p.get("new_categories") is not None:
+                    set_allowed_categories(cur, p["mission_id"], p["new_categories"])
+                else:
+                    # Action-level grant: remove any existing deny and insert allow
+                    cur.execute("DELETE FROM permissions WHERE mission_id = ? AND action = ?", (p["mission_id"], p["category"]))
+                    cur.execute("INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,1)",
+                                (str(uuid.uuid4()), p["mission_id"], p["category"],))
                 _audit(cur, user_id, intent, f"Se le dio a {p['delegate_name']} permiso para '{p['category']}'.")
 
         elif intent == "MODIFY_LIMIT":

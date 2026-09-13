@@ -108,6 +108,12 @@ export const api = {
       () => localApi.simulateTransaction(payload)
     ),
 
+  createTransfer: (payload) =>
+    withFallback(
+      () => request(`/transactions/transfer`, { method: "POST", body: JSON.stringify(payload) }),
+      () => Promise.resolve({ ...payload, status: "APPROVED", message: "Transferencia realizada." })
+    ),
+
   getAuditTrail: (userId) =>
     withFallback(
       () => request(`/audit?user_id=${userId}`),
@@ -198,8 +204,8 @@ export const api = {
 
   executeIntent: (userId, intent, proposal) =>
     withFallback(
-      () => request(`/intent/execute`, { method: "POST", body: JSON.stringify({ user_id: userId, intent, proposal }) }),
-      () => localApi.executeIntent(userId, intent, proposal)
+      () => request(`/intent/execute`, { method: "POST", body: JSON.stringify({ user_id: userId, intent, proposal, confirmed: true }) }),
+      () => localApi.executeIntent(userId, intent, proposal, true)
     ),
 
   // Only resets the in-browser fallback stores (all of them). To reset the
