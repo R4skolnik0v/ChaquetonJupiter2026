@@ -5,7 +5,7 @@ Prototipo para el hackathon de Capital One.
 > "Helping with your money shouldn't mean giving up control."
 > "Que te ayuden con tu dinero no debería significar perder el control sobre él."
 
-Una plataforma web (no una app móvil) donde un adulto mayor puede delegar
+Una plataforma web donde un adulto mayor puede delegar
 **tareas financieras específicas** a una persona de confianza — sin
 entregarle el control total de su cuenta.
 
@@ -31,16 +31,13 @@ reglas en tiempo real.
 
 ## 2. Para quién es — y los 5 escenarios de demo
 
-En vez de un solo caso (María), la app ahora trae 5 escenarios precargados,
-cada uno mostrando una capacidad distinta:
-
 | Escenario | Tema | Qué demuestra |
 |---|---|---|
-| 🧓🏽 María | Delegación segura | Mission Compiler, permisos granulares, transacciones permitidas/no permitidas |
-| 💊 Carlos | Comportamiento anómalo | Un cargo autorizado pero fuera de lo habitual → `REVIEW` |
-| 🛟 Elena | Continuidad financiera | Un plan pre-autorizado que se activa y expira solo |
-| 🧾 Roberto | Límites de permisos | Un límite *por transacción* (no solo mensual) → `BLOCKED` + solicitud de excepción |
-| 🚨 Patricia | Búsqueda del límite | Pagos que suben poco a poco y se acercan al límite autorizado |
+|  María | Delegación segura | Mission Compiler, permisos granulares, transacciones permitidas/no permitidas |
+|  Carlos | Comportamiento anómalo | Un cargo autorizado pero fuera de lo habitual → `REVIEW` |
+|  Elena | Continuidad financiera | Un plan pre-autorizado que se activa y expira solo |
+|  Roberto | Límites de permisos | Un límite *por transacción* (no solo mensual) → `BLOCKED` + solicitud de excepción |
+|  Patricia | Búsqueda del límite | Pagos que suben poco a poco y se acercan al límite autorizado |
 
 Cada uno es una fila de datos en `backend/app/scenarios.py`, no código
 distinto — los 5 pasan por exactamente el mismo Mission Compiler, Risk
