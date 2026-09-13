@@ -22,6 +22,7 @@ export default function ElderIntentBox({ userId, onDone, initialText = "" }) {
   const [result, setResult] = useState(null); // { intent, confirmation_text, proposal }
   const [loading, setLoading] = useState(false);
   const [familyOptions, setFamilyOptions] = useState([]);
+  const [conversationHistory, setConversationHistory] = useState([]);
 
   useEffect(() => {
     api.getTrustNetwork(userId).then((members) => setFamilyOptions(members.map((m) => m.name)));
@@ -30,7 +31,10 @@ export default function ElderIntentBox({ userId, onDone, initialText = "" }) {
   async function interpret() {
     setLoading(true);
     try {
-      const r = await api.interpretIntent(userId, text);
+      const history = [...conversationHistory, { role: "user", content: text }];
+      const r = await api.interpretIntent(userId, text, history);
+      const nextHistory = [...history, { role: "model", content: r.confirmation_text || r.source_text || "Entendí tu petición." }];
+      setConversationHistory(nextHistory);
       setResult(r);
       setStep(r.requires_confirmation === false ? "answered" : "review");
     } finally {
@@ -55,6 +59,7 @@ export default function ElderIntentBox({ userId, onDone, initialText = "" }) {
   function startOver() {
     setText("");
     setResult(null);
+    setConversationHistory([]);
     setStep("write");
   }
 
@@ -62,12 +67,12 @@ export default function ElderIntentBox({ userId, onDone, initialText = "" }) {
     return (
       <div>
         <div className="elder-balance-card">
-          <p style={{ fontSize: "1.15rem", margin: "0 0 16px" }}>¿Quieres cambiar algo? Cuéntamelo con tus palabras.</p>
+          <p style={{ fontSize: "1.15rem", margin: "0 0 16px" }}>¿Qué quieres cambiar?</p>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={EXAMPLES[0]}
-            style={{ width: "100%", minHeight: 120, fontSize: "1.1rem", padding: 16, borderRadius: 14, border: "1px solid var(--line)", fontFamily: "inherit" }}
+            placeholder="Por ejemplo: Quiero que Laura pueda retirar efectivo hasta $1,000 cada semana."
+            style={{ width: "100%", minHeight: 140, fontSize: "1.1rem", padding: 16, borderRadius: 14, border: "1px solid var(--line)", fontFamily: "inherit" }}
           />
           <div style={{ marginTop: 14 }}>
             <p style={{ fontSize: "0.85rem", color: "var(--ink-soft)", margin: "0 0 6px" }}>Por ejemplo:</p>

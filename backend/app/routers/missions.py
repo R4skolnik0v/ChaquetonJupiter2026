@@ -21,7 +21,7 @@ from ..database import db_cursor
 from ..schemas import MissionCompileRequest, MissionConfirmRequest
 from ..engines.mission_compiler import compile_mission, RELATIONSHIP_KEYWORDS
 from ..engines.behavior_baseline import build_all_baselines
-from ..engines.decision_engine import NON_DELEGABLE_ACTIONS
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/missions", tags=["missions"])
 
@@ -43,6 +43,14 @@ def create_mission(cur, owner_id: str, delegate_id: str, purpose: str, days: int
     code path that writes a new mission, no matter which UI triggered it.
     Caller is responsible for commit (pass a db_cursor(commit=True) cursor).
     """
+    # The product requires a single active mission per supported delegate.
+    # Closing any older active mission before creating a replacement avoids
+    # multiple overlapping grants for the same person.
+    cur.execute(
+        "UPDATE missions SET status = 'ended_early' WHERE owner_id = ? AND delegate_id = ? AND status = 'active'",
+        (owner_id, delegate_id),
+    )
+
     mission_id = str(uuid.uuid4())
     start = datetime.utcnow()
     end = start + timedelta(days=days)
@@ -60,11 +68,6 @@ def create_mission(cur, owner_id: str, delegate_id: str, purpose: str, days: int
             "INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,1)",
             (str(uuid.uuid4()), mission_id, category),
         )
-    for action in NON_DELEGABLE_ACTIONS:
-        cur.execute(
-            "INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,0)",
-            (str(uuid.uuid4()), mission_id, action),
-        )
     return mission_id
 
 
@@ -78,9 +81,6 @@ def set_allowed_categories(cur, mission_id: str, allowed_categories: list[str]):
     for category in allowed_categories:
         cur.execute("INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,1)",
                      (str(uuid.uuid4()), mission_id, category))
-    for action in NON_DELEGABLE_ACTIONS:
-        cur.execute("INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,0)",
-                     (str(uuid.uuid4()), mission_id, action))
 
 
 def set_mission_limits(cur, mission_id: str, monthly_limit: float | None = None, per_transaction_limit: float | None = "__unset__"):
@@ -194,3 +194,63 @@ def list_missions(owner_id: str):
                 "spent_this_month": spent,
             })
     return result
+
+
+class PermissionUpdateRequest(BaseModel):
+    owner_id: str
+    action: str
+    action_type: str  # 'category' or 'action'
+    allowed: bool
+
+
+@router.get("/{mission_id}/permissions")
+def list_permissions(mission_id: str, owner_id: str):
+    """Return both category-based permissions and action-based permissions
+    for a given mission and owner. Ensures the caller is the owner."""
+    CATEGORY_CHOICES = ["CFE", "Agua", "Gas", "Farmacia", "Supermercado"]
+    ACTION_CHOICES = ["Retiro", "Transferencia", "Cambio de beneficiario", "Cambio de titularidad", "Préstamo"]
+    with db_cursor() as cur:
+        owner = cur.execute("SELECT * FROM users WHERE id = ?", (owner_id,)).fetchone()
+        if not owner:
+            raise HTTPException(404, "Usuario no encontrado")
+        mission = cur.execute("SELECT * FROM missions WHERE id = ? AND owner_id = ?", (mission_id, owner_id)).fetchone()
+        if not mission:
+            raise HTTPException(404, "Misión no encontrada")
+        allowed_categories = json.loads(mission["allowed_categories"])
+        perms = cur.execute("SELECT action, allowed FROM permissions WHERE mission_id = ?", (mission_id,)).fetchall()
+        action_map = {p["action"]: bool(p["allowed"]) for p in perms}
+
+    categories = [{"key": c, "label": c, "allowed": c in allowed_categories} for c in CATEGORY_CHOICES]
+    actions = [{"key": a, "label": a, "allowed": action_map.get(a, True)} for a in ACTION_CHOICES]
+    return {"categories": categories, "actions": actions}
+
+
+@router.post("/{mission_id}/permissions")
+def update_permission(mission_id: str, body: PermissionUpdateRequest):
+    # Only owner may change permissions
+    with db_cursor(commit=True) as cur:
+        owner = cur.execute("SELECT * FROM users WHERE id = ?", (body.owner_id,)).fetchone()
+        if not owner:
+            raise HTTPException(404, "Usuario no encontrado")
+        mission = cur.execute("SELECT * FROM missions WHERE id = ? AND owner_id = ?", (mission_id, body.owner_id)).fetchone()
+        if not mission:
+            raise HTTPException(404, "Misión no encontrada")
+
+        if body.action_type == "category":
+            # update allowed_categories list on mission and refresh permissions rows
+            current = json.loads(mission["allowed_categories"])
+            if body.allowed and body.action not in current:
+                current.append(body.action)
+            if not body.allowed and body.action in current:
+                current = [c for c in current if c != body.action]
+            set_allowed_categories(cur, mission_id, current)
+        else:
+            # action-level allow/deny stored in permissions table
+            # remove any existing row and insert new allowed flag
+            cur.execute("DELETE FROM permissions WHERE mission_id = ? AND action = ?", (mission_id, body.action))
+            cur.execute(
+                "INSERT INTO permissions (id, mission_id, action, allowed) VALUES (?,?,?,?)",
+                (str(uuid.uuid4()), mission_id, body.action, int(body.allowed)),
+            )
+
+    return {"ok": True}

@@ -11,13 +11,7 @@
 // -----------------------------------------------------------------------
 
 const ANOMALY_MULTIPLIER = 2.0;
-const NON_DELEGABLE_ACTIONS = [
-  "Transferencia",
-  "Retiro",
-  "Cambio de beneficiario",
-  "Cambio de titularidad",
-  "Préstamo",
-];
+const NON_DELEGABLE_ACTIONS = [];
 
 function uid() {
   return crypto.randomUUID();
@@ -89,7 +83,8 @@ function evaluateTransaction({ category, amount, mission, forbiddenActions, mont
     return { status: "APPROVED", reasons: ["Movimiento de la cuenta propia."], comparison: null, exception_eligible: false };
   }
 
-  const nowIso = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    const now = new Date().toISOString();
   if (mission.end_date && nowIso > mission.end_date) {
     return {
       status: "BLOCKED",
@@ -267,15 +262,15 @@ function compileMissionLocal(text, baselines) {
   else if (categories.length === 1 && categories[0] === "Supermercado") purpose = "Supermercado y despensa";
   else if (categories.join() === ["CFE", "Agua", "Gas"].join()) purpose = "Pago de servicios del hogar";
 
-  return {
-    delegate_relationship: relationship,
-    purpose,
-    days,
-    allowed_categories: categories,
-    suggested_limit: limit,
-    forbidden_actions: [...NON_DELEGABLE_ACTIONS],
-    matched_keywords: matched,
-  };
+    return {
+      delegate_relationship: relationship,
+      purpose,
+      days,
+      allowed_categories: categories,
+      suggested_limit: limit,
+      forbidden_actions: [],
+      matched_keywords: matched,
+    };
 }
 
 // ---------------------------------------------------------------------
@@ -723,7 +718,7 @@ function buildScenarioStore(scenario) {
       delegate_name: scenario.delegate.name, purpose: scenario.mission.purpose,
       start_date: daysAgo(0), end_date: daysAhead(scenario.mission.days),
       monthly_limit: scenario.mission.monthly_limit, per_transaction_limit: scenario.mission.per_transaction_limit,
-      allowed_categories: [...scenario.mission.allowed_categories], forbidden_actions: [...NON_DELEGABLE_ACTIONS],
+      allowed_categories: [...scenario.mission.allowed_categories], forbidden_actions: [],
       status: "active", source_text: scenario.mission.source_text,
     });
   }
@@ -897,7 +892,7 @@ const localApi = {
       id, owner_id, delegate_id: delegate.id, delegate_name: delegate.name, purpose,
       start_date: new Date().toISOString(), end_date: daysAhead(days),
       monthly_limit, per_transaction_limit: per_transaction_limit || null,
-      allowed_categories, forbidden_actions: [...NON_DELEGABLE_ACTIONS], status: "active", source_text,
+      allowed_categories, forbidden_actions: [], status: "active", source_text,
     });
     return Promise.resolve({ id, status: "active" });
   },
@@ -1023,7 +1018,7 @@ const localApi = {
       id: missionId, owner_id: userId, delegate_id: rule.delegate_id, delegate_name: rule.delegate_name,
       purpose: rule.trigger_label, start_date: new Date().toISOString(), end_date: daysAhead(rule.days),
       monthly_limit: rule.monthly_limit, per_transaction_limit: null, allowed_categories: rule.allowed_categories,
-      forbidden_actions: [...NON_DELEGABLE_ACTIONS], status: "active", source_text: "Activado por Continuidad Financiera",
+      forbidden_actions: [], status: "active", source_text: "Activado por Continuidad Financiera",
     });
     rule.active = true;
     rule.activated_at = new Date().toISOString();
@@ -1102,13 +1097,16 @@ const localApi = {
     return Promise.resolve({ ...result, source_text: text });
   },
 
-  executeIntent(userId, intentName, proposal) {
+  executeIntent(userId, intentName, proposal, confirmed) {
     const store = getStore(userId);
     const p = proposal;
     const now = new Date().toISOString();
     let result = {};
     let auditReason = null;
     const findMission = (id) => store.missions.find((m) => m.id === id);
+
+    // Require explicit confirmation for state-changing intents.
+    if (intentName !== "GENERAL_FINANCIAL_QUESTION" && !confirmed) return Promise.reject(new Error("Confirmation required to execute this intent"));
 
     switch (intentName) {
       case "CREATE_MISSION": {
@@ -1119,7 +1117,7 @@ const localApi = {
           id, owner_id: userId, delegate_id: delegate.id, delegate_name: delegate.name, purpose: p.purpose,
           start_date: now, end_date: daysAhead(p.days), monthly_limit: p.suggested_limit,
           per_transaction_limit: p.per_transaction_limit || null, allowed_categories: p.allowed_categories,
-          forbidden_actions: [...NON_DELEGABLE_ACTIONS], status: "active", source_text: p.source_text,
+          forbidden_actions: [], status: "active", source_text: p.source_text,
         });
         result = { mission_id: id };
         auditReason = `Se creó una misión nueva para ${p.delegate_name}: ${p.purpose}.`;

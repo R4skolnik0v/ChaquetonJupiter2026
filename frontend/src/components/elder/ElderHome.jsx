@@ -65,6 +65,9 @@ export default function ElderHome({ userId, onNavigate, onOpenIntentBox, pending
       </button>
 
       <div className="elder-actions">
+        <button className="elder-button primary" onClick={() => onNavigate("transfer")}>
+          💸 Transferir dinero
+        </button>
         <button className="elder-button" onClick={() => onNavigate("movements")}>
           Ver mis movimientos <List size={22} />
         </button>

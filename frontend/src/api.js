@@ -108,6 +108,12 @@ export const api = {
       () => localApi.simulateTransaction(payload)
     ),
 
+  createTransfer: (payload) =>
+    withFallback(
+      () => request(`/transactions/transfer`, { method: "POST", body: JSON.stringify(payload) }),
+      () => Promise.resolve({ ...payload, status: "APPROVED", message: "Transferencia realizada." })
+    ),
+
   getAuditTrail: (userId) =>
     withFallback(
       () => request(`/audit?user_id=${userId}`),
@@ -190,16 +196,16 @@ export const api = {
   // ---- Intent Engine: the elder's natural-language box for everything
   // beyond the first mission -- interpret returns a proposal, nothing is
   // written until execute is called with the (possibly edited) proposal. ----
-  interpretIntent: (userId, text) =>
+  interpretIntent: (userId, text, history = []) =>
     withFallback(
-      () => request(`/intent/interpret`, { method: "POST", body: JSON.stringify({ user_id: userId, text }) }),
+      () => request(`/intent/interpret`, { method: "POST", body: JSON.stringify({ user_id: userId, text, history }) }),
       () => localApi.interpretIntent(userId, text)
     ),
 
   executeIntent: (userId, intent, proposal) =>
     withFallback(
-      () => request(`/intent/execute`, { method: "POST", body: JSON.stringify({ user_id: userId, intent, proposal }) }),
-      () => localApi.executeIntent(userId, intent, proposal)
+      () => request(`/intent/execute`, { method: "POST", body: JSON.stringify({ user_id: userId, intent, proposal, confirmed: true }) }),
+      () => localApi.executeIntent(userId, intent, proposal, true)
     ),
 
   // Only resets the in-browser fallback stores (all of them). To reset the

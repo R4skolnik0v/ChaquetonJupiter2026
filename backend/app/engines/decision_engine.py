@@ -32,17 +32,11 @@ from dataclasses import dataclass, field
 from .behavior_baseline import CategoryBaseline, detect_escalation
 from .risk_engine import check_amount_anomaly, check_boundary_pattern
 
-# These actions are never delegable, in any mission, no matter what the
-# Mission Compiler or a family member proposes. This list is intentionally
-# hard-coded (not editable through the UI) -- it's the "you cannot give
-# away the whole house key" guarantee the product is built around.
-NON_DELEGABLE_ACTIONS = {
-    "Transferencia",
-    "Retiro",
-    "Cambio de beneficiario",
-    "Cambio de titularidad",
-    "Préstamo",
-}
+# Historically the prototype used a global non-delegable set here. To give
+# the account owner explicit control over action-level permissions (e.g.
+# cash withdrawals, transfers), we keep this empty and enforce action
+# allow/deny via the `permissions` table attached to each mission.
+NON_DELEGABLE_ACTIONS = set()
 
 
 @dataclass

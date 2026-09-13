@@ -43,6 +43,7 @@ export default function ElderPeople({ userId, onAdd }) {
       <div className="elder-help-people">
         {people.map((p) => {
           const mission = missions.find((m) => m.delegate_name === p.name && m.status === "active");
+          const [editing, setEditing] = [false, null];
           return (
             <div className="elder-help-person" key={p.id} style={{ flexDirection: "column", alignItems: "stretch" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14, width: "100%" }}>
@@ -73,6 +74,22 @@ export default function ElderPeople({ userId, onAdd }) {
                     </button>
                     <button className="btn-secondary" disabled={busy} onClick={() => setConfirmingId(null)}>Cancelar</button>
                   </div>
+                </div>
+              )}
+              {mission && (
+                <div style={{ marginTop: 12 }}>
+                  <button className="elder-button" onClick={async () => {
+                    // open edit permissions modal-like view
+                    const container = document.getElementById('elder-permissions-container');
+                    if (container) {
+                      container.innerHTML = '';
+                    }
+                    // render component by setting location (simple approach)
+                    setTimeout(() => {
+                      // navigate to a simple route or show via parent — keep simple: emit custom event
+                      window.dispatchEvent(new CustomEvent('openEditPermissions', { detail: { ownerId: userId, personName: p.name, missionId: mission.id } }));
+                    }, 10);
+                  }}>Editar permisos</button>
                 </div>
               )}
             </div>
