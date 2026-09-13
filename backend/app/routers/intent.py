@@ -27,6 +27,7 @@ from pydantic import BaseModel
 from ..database import db_cursor
 from ..engines.intent_engine import classify_and_propose
 from ..engines.behavior_baseline import build_all_baselines
+from ..services.gemini_intent_service import GeminiIntentService
 from .missions import create_mission, set_allowed_categories, set_mission_limits, set_mission_duration
 from .trust import add_trust_member_row, remove_trust_member_row
 from .continuity import set_continuity_rule_row, deactivate_continuity_row
@@ -37,6 +38,7 @@ router = APIRouter(prefix="/api/intent", tags=["intent"])
 class InterpretRequest(BaseModel):
     user_id: str
     text: str
+    history: list[dict] | None = None
 
 
 class ExecuteRequest(BaseModel):
@@ -89,6 +91,13 @@ def interpret(body: InterpretRequest):
         if not owner:
             raise HTTPException(404, "Usuario no encontrado")
         context = _build_context(cur, body.user_id)
+
+    service = GeminiIntentService()
+    gemini_result = service.interpret(body.text, context, body.history or [])
+    if gemini_result:
+        gemini_result["source_text"] = body.text
+        return gemini_result
+
     result = classify_and_propose(body.text, context)
     result["source_text"] = body.text
     return result

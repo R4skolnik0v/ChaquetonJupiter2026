@@ -13,7 +13,7 @@ POST /api/transactions/simulate -> "a new transaction just arrived from
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..database import db_cursor
@@ -169,6 +169,29 @@ def create_transfer(body: TransferRequest):
 
         if body.amount <= 0:
             raise HTTPException(400, "El monto debe ser mayor que cero.")
+
+        # Duplicate protection: avoid re-submitting the exact same transfer
+        # while the user is still in the same flow.
+        duplicate_window = (datetime.utcnow() - timedelta(minutes=15)).isoformat()
+        duplicate = cur.execute(
+            "SELECT * FROM transactions WHERE user_id = ? AND merchant = ? AND category = 'Transferencia' AND amount = ? "
+            "AND status IN ('APPROVED','REVIEW') AND timestamp >= ? ORDER BY timestamp DESC LIMIT 1",
+            (body.user_id, body.recipient_name, float(body.amount), duplicate_window),
+        ).fetchone()
+        if duplicate:
+            reasons = json.loads(duplicate["reasons"])
+            return {
+                "id": duplicate["id"],
+                "status": duplicate["status"],
+                "recipient_name": body.recipient_name,
+                "amount": float(body.amount),
+                "concept": body.concept or "Sin concepto",
+                "timestamp": duplicate["timestamp"],
+                "message": "Esta transferencia ya se registró recientemente.",
+                "duplicate": True,
+                "reasons": reasons,
+            }
+
         if body.amount > float(user["available_balance"]):
             raise HTTPException(400, "No tienes suficiente saldo para esta transferencia.")
 
@@ -265,10 +288,11 @@ def create_transfer(body: TransferRequest):
                     0,
                 ),
             )
-            inner.execute(
-                "UPDATE users SET available_balance = available_balance - ? WHERE id = ?",
-                (float(body.amount), body.user_id),
-            )
+            if tx_status == "APPROVED":
+                inner.execute(
+                    "UPDATE users SET available_balance = available_balance - ? WHERE id = ?",
+                    (float(body.amount), body.user_id),
+                )
             inner.execute(
                 "INSERT INTO audit_log (id, user_id, transaction_id, action, reasons, timestamp) VALUES (?,?,?,?,?,?)",
                 (str(uuid.uuid4()), body.user_id, tx_id, "TRANSFERENCIA", json.dumps(reasons), now),

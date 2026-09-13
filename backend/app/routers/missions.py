@@ -43,6 +43,14 @@ def create_mission(cur, owner_id: str, delegate_id: str, purpose: str, days: int
     code path that writes a new mission, no matter which UI triggered it.
     Caller is responsible for commit (pass a db_cursor(commit=True) cursor).
     """
+    # The product requires a single active mission per supported delegate.
+    # Closing any older active mission before creating a replacement avoids
+    # multiple overlapping grants for the same person.
+    cur.execute(
+        "UPDATE missions SET status = 'ended_early' WHERE owner_id = ? AND delegate_id = ? AND status = 'active'",
+        (owner_id, delegate_id),
+    )
+
     mission_id = str(uuid.uuid4())
     start = datetime.utcnow()
     end = start + timedelta(days=days)
