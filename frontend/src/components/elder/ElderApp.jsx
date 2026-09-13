@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { api } from "../../api.js";
+import BrandLogo from "../BrandLogo.jsx";
 import ElderHome from "./ElderHome.jsx";
 import ElderMovements from "./ElderMovements.jsx";
 import ElderUpcoming from "./ElderUpcoming.jsx";
@@ -69,6 +70,9 @@ export default function ElderApp({ userId, scenarioMeta, onSwitchMode, onChangeD
   return (
     <div className="elder-shell">
       <div className="elder-column">
+        <header className="elder-brand">
+          <BrandLogo />
+        </header>
         <div className="elder-topbar">
           {screen === "home" ? <span /> : (
             <button className="elder-back" onClick={() => setScreen("home")}>

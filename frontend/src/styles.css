@@ -57,6 +57,23 @@ button {
   font-family: inherit;
 }
 
+.brand-logo {
+  display: block;
+  width: 220px;
+  max-width: 100%;
+  height: auto;
+}
+
+.elder-brand,
+.family-brand {
+  display: flex;
+  margin-bottom: 16px;
+}
+
+.elder-brand {
+  justify-content: center;
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
