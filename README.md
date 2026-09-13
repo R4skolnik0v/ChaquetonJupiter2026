@@ -442,3 +442,5 @@ cuando necesita más de lo autorizado, tiene que pedirlo, no tomarlo.
 - A Carlos (backup de María) se le cambió la relación de "sobrino" a
   "hijo" para que el ejemplo de revocación del brief funcione tal cual con
   el escenario precargado.
+
+## Checar branch de ReadMe si main no funciona 
