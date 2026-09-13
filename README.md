@@ -1,253 +1,218 @@
-# Acompañamiento Financiero
+# Acompañamiento Financiero con IA segura
 
-Prototipo para el hackathon de Capital One.
+> “Que te ayuden con tu dinero no debería significar perder el control sobre él.”
 
-> "Helping with your money shouldn't mean giving up control."
-> "Que te ayuden con tu dinero no debería significar perder el control sobre él."
+Este proyecto es una prueba de concepto de producto para adultos mayores que necesitan apoyo financiero sin perder la autoridad sobre su dinero. La idea central no es delegar el control total, sino crear una capa de ayuda segura: el usuario define qué puede hacer otra persona, qué cantidades están permitidas y qué acciones jamás pueden realizarse.
 
-Una plataforma web donde un adulto mayor puede delegar
-**tareas financieras específicas** a una persona de confianza — sin
-entregarle el control total de su cuenta.
+La innovación más importante es la combinación de dos cosas:
 
-**v2**: ahora la misma app tiene 5 demos precargadas (una por capacidad del
-producto) más un flujo "empezar desde cero", y el Mission Compiler se movió
-al Modo Adulto Mayor — ver la sección 4 y el CHANGELOG al final.
+- IA para interpretar lenguaje natural y convertirlo en una propuesta estructurada
+- reglas deterministas para validar que esa propuesta sea segura y no pueda romper las restricciones del usuario
+
+En otras palabras, la IA ayuda a entender la intención, pero no decide ni ejecuta el dinero por sí sola.
 
 ---
 
-## 1. Qué problema resolvemos
+## Qué resolvemos
 
-Muchos adultos mayores tienen dificultad para usar aplicaciones bancarias y
-terminan dependiendo de un hijo, nieto o cuidador para pagar sus servicios.
-El problema es que "ayudar" casi siempre implica compartir una contraseña o
-dar acceso total a la cuenta — todo o nada.
+Muchos adultos mayores necesitan ayuda para pagar servicios, revisar movimientos o delegar tareas sencillas, pero la solución tradicional suele implicar:
 
-Este prototipo propone un punto intermedio: **misiones financieras**. El
-adulto mayor delega una tarea concreta ("ayúdame a pagar mis servicios este
-mes"), con un límite de gasto, categorías permitidas, y una lista de
-acciones que jamás se delegan (transferencias, retiros, cambios de
-beneficiario). Un motor de decisiones evalúa cada transacción contra esas
-reglas en tiempo real.
+- compartir contraseñas,
+- dar acceso total a la cuenta,
+- o abandonar el control del propio dinero.
 
-## 2. Para quién es — y los 5 escenarios de demo
+Nuestra propuesta crea un punto intermedio: misiones financieras con permisos granulares, límites, personas autorizadas y un mecanismo de revisión humana.
 
-| Escenario | Tema | Qué demuestra |
-|---|---|---|
-|  María | Delegación segura | Mission Compiler, permisos granulares, transacciones permitidas/no permitidas |
-|  Carlos | Comportamiento anómalo | Un cargo autorizado pero fuera de lo habitual → `REVIEW` |
-|  Elena | Continuidad financiera | Un plan pre-autorizado que se activa y expira solo |
-|  Roberto | Límites de permisos | Un límite *por transacción* (no solo mensual) → `BLOCKED` + solicitud de excepción |
-|  Patricia | Búsqueda del límite | Pagos que suben poco a poco y se acercan al límite autorizado |
+El adulto mayor mantiene el control final. La familia o cuidador puede ayudar, pero nunca sustituye la decisión del titular de la cuenta.
 
-Cada uno es una fila de datos en `backend/app/scenarios.py`, no código
-distinto — los 5 pasan por exactamente el mismo Mission Compiler, Risk
-Engine y Decision Engine. También existe **"Empezar desde cero"**: un
-escenario en blanco, sin ningún dato de los 5 anteriores, para armar una
-misión con nombres propios.
+---
 
-## 3. Cómo funciona, en una frase
+## Lo que descubrimos
 
-El adulto mayor describe lo que necesita → el **Mission Compiler** propone
-una misión estructurada → el adulto mayor la confirma → cada transacción
-que llegue bajo esa misión pasa por un **Decision Engine** determinista que
-la aprueba, la bloquea, o la manda a revisión — explicando siempre por qué.
+La parte más valiosa del proyecto no fue “dejar que la IA administre finanzas”, sino entender que la IA debe trabajar como asistente de interpretación y apoyo, nunca como autoridad financiera.
 
-## 4. Qué hace cada modo
+Lo que encontramos fue esto:
 
-### Modo Adulto Mayor (👵) — el más importante
-Una sola columna, tipografía grande, máximo 3–5 acciones por pantalla, cero
-jerga ("Risk Score", "APR", "Cash Flow" no existen aquí). Pantallas:
-Inicio, Mis movimientos, Próximos pagos, Explícame mis gastos (narra la
-diferencia entre meses en lugar de mostrar una gráfica), **Personas que me
-ayudan** (la red de confianza — agregar y quitar personas es decisión del
-adulto mayor, sección 5), **Mi continuidad** (configurar/activar/desactivar
-el plan de continuidad, también solo el adulto mayor), **¿Quieres cambiar
-algo?** (la caja de texto del Intent Engine — mission compiler, revocar
-permisos, todo, ver sección 5), y **Solicitudes de tu familia** (aprobar o
-rechazar excepciones, sección 6).
+- La IA es útil para convertir frases naturales en propuestas estructuradas.
+- Las decisiones financieras deben seguir reglas explicitas y no opcionales.
+- Las transferencias, retiros, cambios de beneficiario y otras acciones sensibles deben estar bloqueadas por diseño.
+- El adulto mayor siempre debe revisar y confirmar la propuesta antes de ejecutarse.
+- El familiar puede solicitar excepciones, pero no autorizar decisiones críticas.
 
-### Modo Familiar / Ayudante (👩)
-Panel de solo lectura sobre lo que el adulto mayor ya autorizó: la misión
-activa (con su barra de límite y permisos), un simulador de transacciones
-para ver el motor de decisiones en vivo, sus solicitudes de excepción, la
-bitácora de auditoría completa, la red de confianza y el estado de
-Continuidad. Nada de esto se puede crear ni editar desde este lado — ni
-una misión, ni una persona de confianza, ni el plan de continuidad.
+Esa idea define el producto completo: ayuda con IA, control humano y validación robusta.
 
-Ambos modos leen y escriben la misma base de datos — no son dos apps
-separadas, son dos vistas de la misma cuenta.
+---
 
-## 5. El Intent Engine: una sola caja de texto para todo
+## Funcionalidad principal
 
-Este es el cambio conceptual más importante del proyecto: **la intención
-siempre viene de quien es dueño del dinero, nunca de quien va a ayudar**.
-El familiar jamás decide sus propios permisos, ni los agrega, ni los quita.
+### 1. Misión financiera
+El adulto mayor puede asignar una misión a una persona de confianza, por ejemplo:
 
-En vez de una pantalla distinta por cada acción posible (crear misión,
-revocar un permiso, agregar a alguien, configurar continuidad...), el
-adulto mayor tiene UNA sola caja: "¿Quieres cambiar algo?"
-(`components/elder/ElderIntentBox.jsx`). El Intent Engine
-(`backend/app/engines/intent_engine.py`) clasifica el texto en uno de 12
-intents y propone una acción estructurada:
+- pagar servicios del hogar,
+- comprar medicamento,
+- cubrir gastos del mes,
+- gestionar ciertos proveedores.
 
-```
-CREATE_MISSION · MODIFY_MISSION · REVOKE_PERMISSION · GRANT_PERMISSION
-MODIFY_LIMIT · MODIFY_DURATION · ADD_TRUSTED_PERSON · REMOVE_TRUSTED_PERSON
-ENABLE_CONTINUITY · MODIFY_CONTINUITY · DISABLE_CONTINUITY
-GENERAL_FINANCIAL_QUESTION
-```
+Cada misión incluye:
 
-Flujo, siempre el mismo sin importar el intent:
+- persona delegada,
+- categorías permitidas,
+- límite mensual,
+- límite por transacción,
+- duración,
+- acciones prohibidas por defecto.
 
-```
-ADULTO MAYOR describe lo que quiere en lenguaje natural
-        ↓
-INTENT ENGINE clasifica la intención y arma una propuesta
-        ↓
-Muestra "Esto es lo que entendí" -- nunca ejecuta todavía
-        ↓
-ADULTO MAYOR revisa (puede editar los campos clave) y CONFIRMA
-        ↓
-Solo AHORA se escribe en la base de datos (POST /api/intent/execute)
-        ↓
-El familiar ve el resultado ya autorizado, en su propio modo (solo lectura)
-        ↓
-Permission Engine + Risk Engine evalúan cada transacción como siempre
-```
+### 2. Red de confianza
+El usuario puede añadir o quitar personas de su red de confianza. Esa relación se usa para decidir quién puede ayudar y bajo qué condiciones.
 
-Ejemplo real (probado, no hipotético): María escribe *"Ya no quiero que mi
-hijo pueda hacer transferencias"* → el motor identifica REVOKE_PERMISSION
-sobre Carlos y responde *"Entendí que quieres quitarle a Carlos el permiso
-para 'Transferencia'. Buena noticia: eso nunca estuvo permitido para
-nadie..."* -- porque las transferencias son una regla dura, ninguna misión
-puede otorgarlas, con o sin Intent Engine de por medio.
+### 3. Intent Engine
+La caja de texto del adulto mayor permite describir cualquier cambio natural, por ejemplo:
 
-Los casos donde crear una misión sigue siendo el resultado correcto
-reutilizan el **Mission Compiler** original
-(`backend/app/engines/mission_compiler.py`) sin duplicar su lógica de
-categorías/duración/límite -- el Intent Engine solo decide *cuándo*
-llamarlo.
+- “quiero que mi hija pueda pagar la luz”
+- “ya no quiero que mi hijo haga transferencias”
+- “aumenta mi límite mensual para farmacia”
+- “quiero activar mi plan de continuidad”
 
-Una misión sigue siendo una fila en la base de datos con:
+La intención se interpreta y se devuelve como propuesta. La ejecución real solo ocurre tras confirmación.
 
-- **delegate**: quién ayuda (debe estar en la red de confianza)
-- **allowed_categories**: en qué puede gastar (ej. CFE, Agua, Farmacia) --
-  esto es exactamente lo que REVOKE_PERMISSION/GRANT_PERMISSION modifican
-- **monthly_limit** / **per_transaction_limit** *(opcional)*: MODIFY_LIMIT
-  cambia cualquiera de los dos
-- **forbidden actions**: siempre incluye transferencias, retiros, cambios
-  de beneficiario y de titularidad, préstamos -- ninguna de las 12 intents
-  puede tocar esta lista, ni siquiera como "excepción" (ver `routers/
-  exceptions.py`, que la vuelve a comprobar de forma independiente)
-- **start_date / end_date**: MODIFY_DURATION cambia esto; el Decision
-  Engine también lo revisa en cada transacción, no solo al crear la misión
+### 4. Reglas duras del sistema
+El sistema tiene reglas que nunca pueden ser ignoradas:
 
-Nada de esto se guarda hasta que el adulto mayor presiona "Sí, hacer este
-cambio" -- el Intent Engine **propone**, nunca autoriza.
+- transferencias no permitidas por misión,
+- retiros no autorizados,
+- cambios de beneficiario prohibidos,
+- categorías no permitidas,
+- misión vencida o fuera de rango,
+- límite excedido.
 
-## 6. Excepciones: el familiar pide, el adulto mayor decide
+Estas condiciones se evalúan determinísticamente y rigen por encima de señales de comportamiento.
 
-Cuando una transacción se bloquea *únicamente* por exceder un límite de
-gasto (mensual o por transacción — nunca por una acción no delegable como
-una transferencia), la familia puede pedir una excepción de una sola vez.
-El Decision Engine marca esto como `exception_eligible` (ver
-`decision_engine.py`, y persistido en `transactions.exception_eligible`);
-solo entonces aparece el botón "Solicitar excepción" en la bitácora del
-familiar.
+### 5. Risk Engine y revisión humana
+El sistema también analiza anomalías de gasto y patrones de comportamiento para marcar transacciones como REVIEW.
 
-```
-Familiar intenta CFE $742 (límite: $500 por transacción)
-        ↓
-🔴 BLOCKED, exception_eligible = true
-        ↓
-Familiar presiona "Solicitar excepción"
-        ↓
-Adulto mayor ve, en su propio modo: "Andrés quiere pagar $742 a CFE.
-Tu límite actual es $500." → [Aprobar una vez] [Rechazar]
-        ↓
-Si aprueba: se crea una transacción APPROVED (no cambia el límite de la
-misión, solo autoriza ese pago). Si rechaza: queda BLOCKED, con la razón
-registrada en el audit trail.
-```
+Esto permite detectar cambios inusuales sin convertir la IA en el árbitro final de la cuenta.
 
-Esto refuerza la regla central: el familiar puede pedir, pero solo el
-adulto mayor autoriza. Ver `backend/app/routers/exceptions.py`.
+### 6. Excepciones
+Cuando una transacción está bloqueada solo por un límite, la familia puede pedir una excepción. La decisión final de aprobarla o rechazarla la toma el adulto mayor.
 
-## 7. Cómo funciona el Risk Engine
+---
 
-Tres señales, ninguna decide sola:
+## Integración con IA
 
-1. **Anomalía de monto** (`behavior_baseline.py` + `risk_engine.py`):
-   compara una transacción contra el promedio histórico de esa categoría
-   para ese usuario. Un monto ≥2× el promedio se marca para revisión.
-2. **Boundary detection**: si varias transacciones recientes se acercan
-   repetidamente al límite autorizado (mensual o por transacción, el que
-   aplique), se marca para revisión.
-3. **Escalamiento**: si los últimos montos suben de forma sostenida (ej.
-   $200 → $400 → $700), se marca para revisión aunque cada monto individual
-   parezca razonable (`behavior_baseline.detect_escalation`).
+El proyecto tiene una integración con Gemini en el backend, pero su rol es específico y restringido:
 
-Ninguna de las tres acusa de fraude — solo piden que un humano lo revise.
+- interpreta texto libre del usuario,
+- devuelve una propuesta estructurada,
+- nunca ejecuta movimientos financieros,
+- nunca supera las reglas duras del sistema.
 
-El **Decision Engine** (`decision_engine.py`) combina esto con las reglas
-duras y siempre resuelve en uno de tres estados: `APPROVED`, `REVIEW`,
-`BLOCKED`. Las reglas duras (misión expirada, categoría no permitida,
-límite excedido, acción no delegable) **siempre ganan** — ninguna señal de
-comportamiento puede aprobar algo que una regla determinista ya bloqueó.
+El servicio se encuentra en [backend/app/services/gemini_intent_service.py](backend/app/services/gemini_intent_service.py).
 
-## 8. Cómo usamos los datos de Capital One / Nessie
+Si no hay API key disponible, la app sigue funcionando con el flujo determinista local del motor de intención, sin romper la experiencia.
 
-Este prototipo usa datos simulados (`backend/app/scenarios.py`) con la
-misma forma que tendría un feed real de Nessie: comercio, categoría, monto,
-fecha. La arquitectura está separada exactamente donde tendría que
-conectarse la API real:
+La intención de esta arquitectura es clara: la IA sirve para desacelerar la fricción, no para quitar la responsabilidad humana.
 
-```
-Capital One / Nessie
-        ↓
-Transaction Parser        (la forma del dict que recibe el Decision Engine)
-        ↓
-Mission / Permission Engine
-        ↓
-Behavioral Analysis
-        ↓
-Risk Engine
-        ↓
-Decision Engine
-        ↓
-APPROVE / REVIEW / BLOCK
-        ↓
-Audit Log
+---
+
+## Arquitectura del proyecto
+
+### Frontend
+La app web está construida con React + Vite y presenta dos experiencias principales:
+
+- modo adulto mayor,
+- modo familiar / ayudante.
+
+Además tiene una landing con demos y un flujo de “empezar desde cero”.
+
+Carpetas principales:
+
+- [frontend/src/App.jsx](frontend/src/App.jsx)
+- [frontend/src/api.js](frontend/src/api.js)
+- [frontend/src/components](frontend/src/components)
+- [frontend/src/data/localEngine.js](frontend/src/data/localEngine.js)
+
+### Backend
+El backend está hecho en FastAPI y usa SQLite sin ORM.
+
+Principales componentes:
+
+- [backend/app/main.py](backend/app/main.py)
+- [backend/app/database.py](backend/app/database.py)
+- [backend/app/scenarios.py](backend/app/scenarios.py)
+- [backend/app/engines](backend/app/engines)
+- [backend/app/routers](backend/app/routers)
+- [backend/app/services/gemini_intent_service.py](backend/app/services/gemini_intent_service.py)
+
+### Motores clave
+
+- Mission Compiler: convierte la intención del usuario en una misión estructurada.
+- Intent Engine: interpreta lenguaje natural y propone cambios.
+- Risk Engine: analiza riesgo y anomalías.
+- Decision Engine: resuelve si una transacción debe ser aprobada, revisada o bloqueada.
+
+---
+
+## Casos de demo
+
+El proyecto ya incluye varios escenarios para mostrar distintas capacidades del producto:
+
+- María: delegación segura
+- Carlos: comportamiento anómalo
+- Elena: continuidad financiera
+- Roberto: límites de permisos
+- Patricia: búsqueda del límite
+
+También existe un flujo para crear un escenario desde cero con nombres propios.
+
+---
+
+## Cómo arrancarlo
+
+### Backend
+Desde la carpeta [backend](backend):
+
+```bash
+./run.sh
 ```
 
-Sustituir Nessie por datos reales significa cambiar únicamente de dónde
-vienen las filas de `transactions` — nada en `missions.py`,
-`decision_engine.py` o el audit log necesita cambiar.
+o con uvicorn directamente:
 
-## 9. Arquitectura
-
-```
-frontend/   React + Vite. Dos experiencias (Elder / Family) sobre la
-            misma API, más una landing con selector de escenario. Incluye
-            un motor de respaldo en el navegador (src/data/localEngine.js)
-            que replica las mismas reglas y los mismos 5 escenarios por si
-            el backend no está corriendo durante la demo.
-
-backend/    FastAPI + SQLite (sqlite3 puro, sin ORM).
-              app/engines/    Mission Compiler, Behavior Baseline,
-                               Risk Engine, Decision Engine.
-              app/scenarios.py  Los 5 escenarios como datos + UNA función
-                               que los provisiona (sin ifs por nombre).
-              app/routers/    users, missions, transactions, audit, trust,
-                               continuity, scenarios, exceptions.
-              app/seed.py     Provisiona los 5 escenarios al arrancar.
+```bash
+cd backend
+source .venv/bin/activate
+uvicorn app.main:app --reload --port 8000
 ```
 
-Un escenario = un `user_id`. Cambiar de demo en el frontend es solo cambiar
-qué `user_id` se le pregunta a una API que ya es genérica — por eso nunca
-hace falta reiniciar el backend para cambiar de escenario.
+### Frontend
+Desde la carpeta [frontend](frontend):
 
-## 10. Base de datos
+```bash
+npm install
+npm run dev
+```
+
+Si se quiere usar Gemini, configura la variable de entorno:
+
+```bash
+export GEMINI_API_KEY=tu_api_key
+```
+
+---
+
+## Resumen
+
+Este proyecto demuestra una idea muy clara: la IA puede ayudar a entender lo que una persona quiere hacer con su dinero, pero la seguridad financiera no puede depender de la IA como decisor final.
+
+Nuestra propuesta combina:
+
+- lenguaje natural,
+- decisiones humanas,
+- reglas duras,
+- auditoría clara,
+- y una relación de confianza entre adulto mayor y familia.
+
+Eso es lo que realmente descubrimos: no se trata de automatizar el dinero, sino de diseñar una experiencia de apoyo financiera segura, explicable y controlada por quien realmente tiene la cuenta.
+
 
 SQLite, un archivo (`backend/money_companion.db`, se genera al correr el
 seed). Tablas: `users`, `family_members`, `trust_network`, `missions`
